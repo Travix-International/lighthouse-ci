@@ -4,8 +4,8 @@
       "port": 9001,
       "storage": {
         "storageMethod": "sql",
-        "sqlDialect": "sqlite",
-        "sqlDatabasePath": "/data/lhci.db"
+        "sqlDialect": "postgres",
+        "storage.sqlConnectionUrl": $CONNECTION_STRING
       }
     }
   }
