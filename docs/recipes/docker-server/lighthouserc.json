@@ -1,15 +1,3 @@
-// {
-//   "ci": {
-//     "server": {
-//       "port": 9001,
-//       "storage": {
-//         "storageMethod": "sql",
-//         "sqlDialect": "postgres",
-//         "storage.sqlConnectionUrl": "postgres://lighthouse:testlighthouseci@34.77.229.51/lighthouse_ci_db"
-//       }
-//     }
-//   }
-// }
 {
   "ci": {
     "server": {
