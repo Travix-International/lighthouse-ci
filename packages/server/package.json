@@ -23,14 +23,17 @@
     "@lhci/utils": "0.1.0",
     "body-parser": "^1.18.3",
     "compression": "^1.7.4",
+    "cron": "^1.8.2",
+    "dayjs": "^1.8.28",
     "express": "^4.16.4",
+    "express-basic-auth": "^1.2.0",
     "morgan": "^1.9.1",
     "sequelize": "^4.44.3",
     "umzug": "^2.2.0",
     "uuid": "^3.3.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.5.5",
+    "@babel/core": "^7.10.2",
     "clsx": "^1.0.4",
     "d3": "^5.15.0",
     "plotly.js": "^1.48.3",

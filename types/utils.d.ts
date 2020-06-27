@@ -8,6 +8,8 @@ import {ComponentChildren} from 'preact';
 
 declare global {
   namespace LHCI {
+    export type Unpromised<T extends Promise<U>> = U;
+
     export type YargsOptions = Partial<
       {extends?: string | undefined; config?: string} & AssertCommand.Options &
         CollectCommand.Options &
@@ -92,6 +94,7 @@ declare global {
 
     export interface E2EState {
       debug: boolean;
+      dataset: 'generated' | 'actual';
       rootURL: string;
       client: import('../packages/utils/src/api-client');
       server: {port: number; close: () => Promise<void>};

@@ -1,8 +1,10 @@
 # Docker-based LHCI Server
 
+**NOTE: be sure to read the [Security section](../../server.md#Security) of the server documentation to protect your server properly**
+
 ## Overview
 
-The LHCI server can be run in any node environment with persistent disk storage or network access to a postgres database. Docker can help encapsulate the server setup details for an instant custom server.
+The LHCI server can be run in any node environment with persistent disk storage or network access to a postgres/mysql database. Docker can help encapsulate the server setup details for an instant custom server.
 
 ## Building Locally
 
@@ -36,19 +38,28 @@ docker push <your username>/lhci-server:latest
 
 You can deploy your own server instance to Google Cloud Platform without ever installing Docker or ssh'ing into any machines.
 
+**WARNING:** GCP pricing changes for Kubernetes cluster management went into effect starting June 6, 2020 that clusters beyond your first now cost \$72/month. We would only recommend following the script below if you're required to use GCP. If you're just trying to setup the server quickly for free, follow our other guides for [more economical options](../heroku-server/README.md).
+
+- List of [GCP Zones](https://cloud.google.com/compute/docs/regions-zones#available)
+- Google Cloud [SDK Installation Instructions](https://cloud.google.com/sdk/install) (though if you have to use these, this guide probably isn't for you)
+
+**Run the below commands locally to setup your GCP server.**
+
 ```bash
 # Configure the gcloud utility
 PROJECT_ID="<your GCP project id here>"
 COMPUTE_ZONE="<your zone here, e.g. us-central1-a>"
-gcloud config set project $PROJECT_ID
-gcloud config set compute/zone $COMPUTE_ZONE
+gcloud config set project "$PROJECT_ID"
+gcloud config set compute/zone "$COMPUTE_ZONE"
 
 # Create our Kubernetes cluster for LHCI
 gcloud container clusters create lhci-cluster --num-nodes=1
 
 # Deploy the LHCI server pod
-kubectl apply -f ./kubernetes/lhci-data-claim.yml
-kubectl apply -f ./kubernetes/lhci-pod.yml
+curl https://raw.githubusercontent.com/GoogleChrome/lighthouse-ci/master/docs/recipes/docker-server/kubernetes/lhci-data-claim.yml > lhci-data-claim.yml
+curl https://raw.githubusercontent.com/GoogleChrome/lighthouse-ci/master/docs/recipes/docker-server/kubernetes/lhci-pod.yml > lhci-pod.yml
+kubectl apply -f ./lhci-data-claim.yml
+kubectl apply -f ./lhci-pod.yml
 
 # Make sure our pod was created successfully
 kubectl get pods
@@ -64,6 +75,21 @@ kubectl get service
 # kubernetes    ClusterIP      10.X.X.X       <none>         443/TCP        9m
 # lhci-server   LoadBalancer   10.X.X.X       X.X.X.X        80:XXXXX/TCP   2m
 ```
+
+Once you've got the server up and running you can continue with the [Getting Started](../../getting-started.md#The-Lighthouse-CI-Server) steps using the EXTERNAL-IP as your LHCI server base URL.
+
+#### Troubleshooting
+
+The above commands assume that you're working a clean project that hasn't been manually configured for other services. If you've used this project for other GCP services, you might need to tweak the commands used. Some examples with workarounds are reproduced below.
+
+**default network problem**
+GCP projects come with a `default` network when created. You might have manually deleted this. You can either recreate the default network before running the script or manually create a cluster named `lhci-server` via the UI, edit the default-pool to have 1 node instead of 3, and set the smallest acceptable machines.
+
+**connected to machine problem**
+If you weren't able to create the server via the CLI or have other permissions set, you won't be connected to `lhci-server` when you run the rest of the commands.
+
+Run the below to continue:
+`gcloud container clusters get-credentials lhci-server --zone $COMPUTE_ZONE --project $PROJECT_ID`
 
 ### Docker Compose
 
@@ -81,5 +107,3 @@ services:
 volumes:
   lhci-data:
 ```
-
-Note that the server has no authentication mechanisms and that anyone with HTTP access to the server will be able to view and create data. If your server contains sensitive information, consider protecting it within a firewall that is only accessible to your internal network.

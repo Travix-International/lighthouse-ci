@@ -71,7 +71,10 @@ function getCurrentHash() {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error('Unable to determine current hash with `git rev-parse HEAD`');
+    throw new Error(
+      'Unable to determine current hash with `git rev-parse HEAD`. ' +
+        'This can be overridden with setting LHCI_BUILD_CONTEXT__CURRENT_HASH env.'
+    );
   }
 
   return result.stdout.trim();
@@ -92,7 +95,10 @@ function getCommitTime(hash) {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error('Unable to retrieve committer timestamp from commit');
+    throw new Error(
+      'Unable to retrieve committer timestamp from commit. ' +
+        'This can be overridden with setting LHCI_BUILD_CONTEXT__COMMIT_TIME env.'
+    );
   }
 
   return result.stdout.trim();
@@ -126,7 +132,10 @@ function getCurrentBranchRaw_() {
 
   const branch = result.stdout.trim();
   if (result.status !== 0 || branch === 'HEAD') {
-    throw new Error('Unable to determine current branch with `git rev-parse --abbrev-ref HEAD`');
+    throw new Error(
+      'Unable to determine current branch with `git rev-parse --abbrev-ref HEAD`. ' +
+        'This can be overridden with setting LHCI_BUILD_CONTEXT__CURRENT_BRANCH env.'
+    );
   }
 
   return branch;
@@ -174,7 +183,10 @@ function getCommitMessage(hash = 'HEAD') {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error('Unable to determine commit message with `git log --format=%s -n 1`');
+    throw new Error(
+      'Unable to determine commit message with `git log --format=%s -n 1`. ' +
+        'This can be overridden with setting LHCI_BUILD_CONTEXT__COMMIT_MESSAGE env.'
+    );
   }
 
   return result.stdout.trim().slice(0, 80);
@@ -195,7 +207,10 @@ function getAuthor(hash = 'HEAD') {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error('Unable to determine commit author with `git log --format=%aN <%aE> -n 1`');
+    throw new Error(
+      'Unable to determine commit author with `git log --format=%aN <%aE> -n 1`. ' +
+        'This can be overridden with setting LHCI_BUILD_CONTEXT__AUTHOR env.'
+    );
   }
 
   return result.stdout.trim().slice(0, 256);
@@ -216,12 +231,23 @@ function getAvatarUrl(hash = 'HEAD') {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error('Unable to determine commit email with `git log --format=%aE -n 1`');
+    throw new Error(
+      "Unable to determine commit author's avatar URL because `git log --format=%aE -n 1` failed to provide author's email. " +
+        'This can be overridden with setting LHCI_BUILD_CONTEXT__AVATAR_URL env.'
+    );
   }
 
+  return getGravatarUrlFromEmail(result.stdout);
+}
+
+/**
+ * @param {string} email
+ * @return {string}
+ */
+function getGravatarUrlFromEmail(email) {
   // Use default gravatar image, see https://en.gravatar.com/site/implement/images/.
   const md5 = crypto.createHash('md5');
-  md5.update(result.stdout.trim().toLowerCase());
+  md5.update(email.trim().toLowerCase());
   return `https://www.gravatar.com/avatar/${md5.digest('hex')}.jpg?d=identicon`;
 }
 
@@ -229,7 +255,7 @@ function getAvatarUrl(hash = 'HEAD') {
  * @param {string} [hash]
  * @return {string}
  */
-function getAncestorHashForMaster(hash = 'HEAD') {
+function getAncestorHashForBase(hash = 'HEAD') {
   const result = childProcess.spawnSync('git', ['rev-parse', `${hash}^`], {encoding: 'utf8'});
   // Ancestor hash is optional, so do not throw if it can't be computed.
   // See https://github.com/GoogleChrome/lighthouse-ci/issues/36
@@ -240,12 +266,13 @@ function getAncestorHashForMaster(hash = 'HEAD') {
 
 /**
  * @param {string} [hash]
+ * @param {string} [baseBranch]
  * @return {string}
  */
-function getAncestorHashForBranch(hash = 'HEAD') {
+function getAncestorHashForBranch(hash = 'HEAD', baseBranch = 'master') {
   const result = runCommandsUntilFirstSuccess([
-    ['git', ['merge-base', hash, 'origin/master']],
-    ['git', ['merge-base', hash, 'master']],
+    ['git', ['merge-base', hash, `origin/${baseBranch}`]],
+    ['git', ['merge-base', hash, baseBranch]],
   ]);
 
   // Ancestor hash is optional, so do not throw if it can't be computed.
@@ -267,11 +294,12 @@ function getAncestorHash(hash = 'HEAD') {
   if (envHash) return envHash;
 
   return getCurrentBranch() === 'master'
-    ? getAncestorHashForMaster(hash)
+    ? getAncestorHashForBase(hash)
     : getAncestorHashForBranch(hash);
 }
 
-function getGitHubRepoSlug() {
+/** @param {string|undefined} apiHost */
+function getGitHubRepoSlug(apiHost = undefined) {
   const envSlug = getEnvVarIfSet([
     // Manual override
     'LHCI_BUILD_CONTEXT__GITHUB_REPO_SLUG',
@@ -290,8 +318,16 @@ function getGitHubRepoSlug() {
 
   const remote = getGitRemote();
   if (remote && remote.includes('github.com')) {
-    const remoteMatch = remote.match(/github\.com.([^/]+\/.+)\.git/);
+    const remoteMatch = remote.match(/github\.com.([^/]+\/[^/]+?)(\.git|$)/);
     if (remoteMatch) return remoteMatch[1];
+  }
+
+  if (remote && apiHost && !apiHost.includes('github.com')) {
+    const hostMatch = apiHost.match(/:\/\/(.*?)(\/|$)/);
+    if (!hostMatch) return undefined;
+    const remoteRegex = new RegExp(`${hostMatch[1]}(:|\\/)([^/]+\\/.+)\\.git`);
+    const remoteMatch = remote.match(remoteRegex);
+    if (remoteMatch) return remoteMatch[2];
   }
 }
 
@@ -303,8 +339,9 @@ module.exports = {
   getCommitMessage,
   getAuthor,
   getAvatarUrl,
+  getGravatarUrlFromEmail,
   getAncestorHash,
-  getAncestorHashForMaster,
+  getAncestorHashForBase,
   getAncestorHashForBranch,
   getGitRemote,
   getGitHubRepoSlug,

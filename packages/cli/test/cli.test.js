@@ -7,24 +7,23 @@
 
 /* eslint-env jest */
 
-jest.retryTimes(3);
-
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const {spawn} = require('child_process');
 const fetch = require('isomorphic-fetch');
 const log = require('lighthouse-logger');
 const puppeteer = require('puppeteer');
+const ApiClient = require('../../utils/src/api-client.js');
 const {
   startServer,
   cleanStdOutput,
-  waitForCondition,
   getSqlFilePath,
   safeDeleteFile,
   runCLI,
-  CLI_PATH,
+  runWizardCLI,
 } = require('./test-utils.js');
+
+jest.setTimeout(120e3);
 
 describe('Lighthouse CI CLI', () => {
   const rcFile = path.join(__dirname, 'fixtures/lighthouserc.json');
@@ -35,6 +34,7 @@ describe('Lighthouse CI CLI', () => {
 
   let server;
   let projectToken;
+  let projectAdminToken;
   let urlToCollect;
 
   afterAll(async () => {
@@ -60,44 +60,37 @@ describe('Lighthouse CI CLI', () => {
   });
 
   describe('wizard', () => {
-    const ENTER_KEY = '\x0D';
-
-    async function writeAllInputs(wizardProcess, inputs) {
-      for (const input of inputs) {
-        wizardProcess.stdin.write(input);
-        wizardProcess.stdin.write(ENTER_KEY);
-        // Wait for inquirer to write back our response, that's the signal we can continue.
-        await waitForCondition(() => wizardProcess.stdoutMemory.includes(input));
-        // Sometimes it still isn't ready though, give it a bit more time to process.
-        await new Promise(r => setTimeout(r, process.env.CI ? 500 : 50));
-      }
-
-      wizardProcess.stdin.end();
-    }
-
     it('should create a new project', async () => {
-      const wizardProcess = spawn('node', [CLI_PATH, 'wizard']);
-      wizardProcess.stdoutMemory = '';
-      wizardProcess.stderrMemory = '';
-      wizardProcess.stdout.on('data', chunk => (wizardProcess.stdoutMemory += chunk.toString()));
-      wizardProcess.stderr.on('data', chunk => (wizardProcess.stderrMemory += chunk.toString()));
+      const {stdout, stderr, status} = await runWizardCLI(
+        [],
+        [
+          '', // Just ENTER key to select "new-project"
+          `http://localhost:${server.port}`, // The base URL to talk to
+          'AwesomeCIProjectName', // Project name
+          'https://example.com', // External build URL
+          '', // Default baseBranch
+        ]
+      );
 
-      await waitForCondition(() => wizardProcess.stdoutMemory.includes('Which wizard'));
-      await writeAllInputs(wizardProcess, [
-        '', // Just ENTER key to select "new-project"
-        `http://localhost:${server.port}`, // The base URL to talk to
-        'AwesomeCIProjectName', // Project name
-        'https://example.com', // External build URL
-      ]);
+      expect(stderr).toEqual('');
+      expect(status).toEqual(0);
 
-      expect(wizardProcess.stdoutMemory).toContain('Use token');
-      expect(wizardProcess.stderrMemory).toEqual('');
-      const tokenSentence = wizardProcess.stdoutMemory
-        .match(/Use token [\s\S]+/im)[0]
+      // Extract the regular token
+      expect(stdout).toContain('Use build token');
+      const tokenSentence = stdout
+        .match(/Use build token [\s\S]+/im)[0]
         .replace(log.bold, '')
         .replace(log.reset, '');
-      projectToken = tokenSentence.match(/Use token ([\w-]+)/)[1];
-    }, 30000);
+      projectToken = tokenSentence.match(/Use build token ([\w-]+)/)[1];
+
+      // Extract the admin token
+      expect(stdout).toContain('Use admin token');
+      const adminSentence = stdout
+        .match(/Use admin token [\s\S]+/im)[0]
+        .replace(log.bold, '')
+        .replace(log.reset, '');
+      projectAdminToken = adminSentence.match(/Use admin token (\w+)/)[1];
+    });
 
     it('should create a new project with config file', async () => {
       const wizardTempConfigFile = {
@@ -107,33 +100,28 @@ describe('Lighthouse CI CLI', () => {
       const wizardRcFile = `${tmpFolder}/wizard.json`;
       fs.writeFileSync(wizardRcFile, JSON.stringify(wizardTempConfigFile), {encoding: 'utf8'});
 
-      const wizardProcess = spawn('node', [CLI_PATH, 'wizard', `--config=${wizardRcFile}`]);
-      wizardProcess.stdoutMemory = '';
-      wizardProcess.stderrMemory = '';
-      wizardProcess.stdout.on(
-        'data',
-        chunk => (wizardProcess.stdoutMemory += chunk.toString().replace(/\n/g, ''))
+      const {stdout, stderr, status} = await runWizardCLI(
+        [`--config=${wizardRcFile}`],
+        [
+          '', // Just ENTER key to select "new-project"
+          '', // Just ENTER key to use serverBaseUrl from config file
+          'OtherCIProjectName', // Project name
+          'https://example.com', // External build URL
+          '', // Default baseBranch
+        ]
       );
-      wizardProcess.stderr.on('data', chunk => (wizardProcess.stderrMemory += chunk.toString()));
 
-      await waitForCondition(() => wizardProcess.stdoutMemory.includes('Which wizard'));
-      await writeAllInputs(wizardProcess, [
-        '', // Just ENTER key to select "new-project"
-        '', // Just ENTER key to use serverBaseUrl from config file
-        'AwesomeCIProjectName', // Project name
-        'https://example.com', // External build URL
-      ]);
-
-      expect(wizardProcess.stdoutMemory).toContain(`http://localhost:${server.port}`);
-      expect(wizardProcess.stderrMemory).toEqual('');
-    }, 30000);
+      expect(stderr).toEqual('');
+      expect(status).toEqual(0);
+      expect(stdout).toContain(`http://localhost:${server.port}`);
+    });
   });
 
   describe('healthcheck', () => {
     it('should pass when things are good', async () => {
       const LHCI_TOKEN = projectToken;
       const LHCI_SERVER_BASE_URL = `http://localhost:${server.port}`;
-      const {stdout, stderr, status} = runCLI(['healthcheck', `--fatal`], {
+      const {stdout, stderr, status} = await runCLI(['healthcheck', `--fatal`], {
         env: {LHCI_TOKEN, LHCI_SERVER_BASE_URL},
       });
 
@@ -144,6 +132,7 @@ describe('Lighthouse CI CLI', () => {
         ⚠️   GitHub token not set
         ✅  Ancestor hash determinable
         ✅  LHCI server reachable
+        ✅  LHCI server API-compatible
         ✅  LHCI server token valid
         ✅  LHCI server unique build for this hash
         Healthcheck passed!
@@ -156,7 +145,7 @@ describe('Lighthouse CI CLI', () => {
     it('should fail when things are bad', async () => {
       const LHCI_TOKEN = projectToken;
       const LHCI_SERVER_BASE_URL = `http://localhost:${server.port}`;
-      const {stdout, stderr, status} = runCLI(
+      const {stdout, stderr, status} = await runCLI(
         ['healthcheck', `--config=${rcFile}`, `--fatal`, '--checks=githubToken'],
         {env: {LHCI_TOKEN, LHCI_SERVER_BASE_URL}}
       );
@@ -168,6 +157,7 @@ describe('Lighthouse CI CLI', () => {
         ❌  GitHub token not set
         ✅  Ancestor hash determinable
         ✅  LHCI server reachable
+        ✅  LHCI server API-compatible
         ✅  LHCI server token valid
         ✅  LHCI server unique build for this hash
         Healthcheck failed!
@@ -180,12 +170,12 @@ describe('Lighthouse CI CLI', () => {
 
   // FIXME: Tests dependency. Moving these tests breaks others.
   describe('collect', () => {
-    it('should collect results with a server command', () => {
+    it('should collect results with a server command', async () => {
       // FIXME: for some inexplicable reason this test cannot pass in Travis Windows
       if (os.platform() === 'win32') return;
 
       const startCommand = `yarn start server -p=14927 --storage.sqlDatabasePath=${tmpSqlFilePath}`;
-      const {stdout, stderr, status} = runCLI([
+      const {stdout, stderr, status} = await runCLI([
         'collect',
         `-n=1`,
         `--config=${rcFile}`,
@@ -203,9 +193,9 @@ describe('Lighthouse CI CLI', () => {
       `);
       expect(stderr.toString()).toMatchInlineSnapshot(`""`);
       expect(status).toEqual(0);
-    }, 60000);
-    it('should collect results from explicit urls', () => {
-      const {stdout, stderr, status} = runCLI([
+    });
+    it('should collect results from explicit urls', async () => {
+      const {stdout, stderr, status} = await runCLI([
         'collect',
         `--config=${rcFile}`,
         `--url=${urlToCollect}`,
@@ -220,13 +210,13 @@ describe('Lighthouse CI CLI', () => {
       `);
       expect(stderr.toString()).toMatchInlineSnapshot(`""`);
       expect(status).toEqual(0);
-    }, 60000);
+    });
   });
 
   describe('upload', () => {
     let uuids;
-    it('should read LHRs from folders', () => {
-      const {stdout, stderr, status, matches} = runCLI(
+    it('should read LHRs from folders', async () => {
+      const {stdout, stderr, status, matches} = await runCLI(
         ['upload', `--serverBaseUrl=http://localhost:${server.port}`],
         {env: {LHCI_TOKEN: projectToken}}
       );
@@ -239,7 +229,7 @@ describe('Lighthouse CI CLI', () => {
         Saved LHR to http://localhost:XXXX (<UUID>)
         Done saving build results to Lighthouse CI
         View build diff at http://localhost:XXXX/app/projects/awesomeciprojectname/compare/<UUID>
-        No GitHub token set, skipping.
+        No GitHub token set, skipping GitHub status check.
         "
       `);
       expect(stderr).toMatchInlineSnapshot(`""`);
@@ -247,7 +237,7 @@ describe('Lighthouse CI CLI', () => {
       expect(uuids).toHaveLength(5);
     });
 
-    it('should have written links to a file', () => {
+    it('should have written links to a file', async () => {
       const linksFile = path.join(process.cwd(), '.lighthouseci/links.json');
       const links = fs.readFileSync(linksFile, 'utf8');
       expect(cleanStdOutput(links)).toMatchInlineSnapshot(`
@@ -286,7 +276,10 @@ describe('Lighthouse CI CLI', () => {
     });
 
     it('should support target=temporary-public-storage', async () => {
-      const {stdout, stderr, status} = runCLI(['upload', `--target=temporary-public-storage`]);
+      const {stdout, stderr, status} = await runCLI([
+        'upload',
+        `--target=temporary-public-storage`,
+      ]);
 
       expect(stdout).toContain('...success!');
       expect(stdout).toContain('Open the report at');
@@ -294,18 +287,16 @@ describe('Lighthouse CI CLI', () => {
       expect(status).toEqual(0);
     });
 
-    it('should have written links to a file', () => {
+    it('should have written links to a file', async () => {
       const linksFile = path.join(process.cwd(), '.lighthouseci/links.json');
       const links = fs.readFileSync(linksFile, 'utf8');
-      expect(cleanStdOutput(links)).toMatchInlineSnapshot(`
-        "{
-          \\"http://localhost:XXXX/app/\\": \\"https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/XXXX-XXXX.report.html\\"
-        }"
-      `);
+      expect(links).toContain('http://localhost');
+      expect(links).toContain('/app/');
+      expect(links).toContain('storage.googleapis.com');
     });
 
-    it('should fail repeated attempts', () => {
-      const {stdout, stderr, status} = runCLI(
+    it('should fail repeated attempts', async () => {
+      const {stdout, stderr, status} = await runCLI(
         ['upload', `--serverBaseUrl=http://localhost:${server.port}`],
         {env: {LHCI_TOKEN: projectToken}}
       );
@@ -318,20 +309,20 @@ describe('Lighthouse CI CLI', () => {
   });
 
   describe('assert', () => {
-    it('should assert failures', () => {
-      const {stdout, stderr, status} = runCLI(['assert', `--assertions.works-offline=error`]);
+    it('should assert failures', async () => {
+      const {stdout, stderr, status} = await runCLI(['assert', `--assertions.works-offline=error`]);
 
       expect(stdout).toMatchInlineSnapshot(`""`);
       expect(stderr).toMatchInlineSnapshot(`
         "Checking assertions against 1 URL(s), 2 total run(s)
 
-        1 result(s) for [1mhttp://localhost:XXXX/app/[0m
+        1 result(s) for [1mhttp://localhost:XXXX/app/[0m :
 
           [31mX[0m  [1mworks-offline[0m failure for [1mminScore[0m assertion
-             Current page does not respond with a 200 when offline
-             Documentation: https://web.dev/works-offline
+               Current page does not respond with a 200 when offline
+               https://web.dev/works-offline
 
-                expected: >=[32m1[0m
+                expected: >=[32m0.9[0m
                    found: [31m0[0m
               [2mall values: 0, 0[0m
 
@@ -341,8 +332,8 @@ describe('Lighthouse CI CLI', () => {
       expect(status).toEqual(1);
     });
 
-    it('should assert failures from an rcfile', () => {
-      const {stdout, stderr, status} = runCLI([
+    it('should assert failures from an rcfile', async () => {
+      const {stdout, stderr, status} = await runCLI([
         'assert',
         `--assertions.first-contentful-paint=off`,
         `--assertions.speed-index=off`,
@@ -354,11 +345,11 @@ describe('Lighthouse CI CLI', () => {
       expect(stderr).toMatchInlineSnapshot(`
         "Checking assertions against 1 URL(s), 2 total run(s)
 
-        1 result(s) for [1mhttp://localhost:XXXX/app/[0m
+        1 result(s) for [1mhttp://localhost:XXXX/app/[0m :
 
           [31mX[0m  [1mperformance-budget[0m.script.size failure for [1mmaxNumericValue[0m assertion
-             Performance budget
-             Documentation: https://developers.google.com/web/tools/lighthouse/audits/budgets
+               Performance budget
+               https://developers.google.com/web/tools/lighthouse/audits/budgets
 
                 expected: <=[32mXXXX[0m
                    found: [31mXXXX[0m
@@ -370,20 +361,20 @@ describe('Lighthouse CI CLI', () => {
       expect(status).toEqual(1);
     });
 
-    it('should assert failures from a matrix rcfile', () => {
-      const {stdout, stderr, status} = runCLI(['assert', `--config=${rcMatrixFile}`]);
+    it('should assert failures from a matrix rcfile', async () => {
+      const {stdout, stderr, status} = await runCLI(['assert', `--config=${rcMatrixFile}`]);
 
       expect(stdout).toMatchInlineSnapshot(`""`);
       expect(stderr).toMatchInlineSnapshot(`
         "Checking assertions against 1 URL(s), 2 total run(s)
 
-        1 result(s) for [1mhttp://localhost:XXXX/app/[0m
+        1 result(s) for [1mhttp://localhost:XXXX/app/[0m :
 
           [31mX[0m  [1mworks-offline[0m failure for [1mminScore[0m assertion
-             Current page does not respond with a 200 when offline
-             Documentation: https://web.dev/works-offline
+               Current page does not respond with a 200 when offline
+               https://web.dev/works-offline
 
-                expected: >=[32m1[0m
+                expected: >=[32m0.9[0m
                    found: [31m0[0m
               [2mall values: 0, 0[0m
 
@@ -393,8 +384,8 @@ describe('Lighthouse CI CLI', () => {
       expect(status).toEqual(1);
     });
 
-    it('should assert failures from an extended rcfile', () => {
-      const {stdout, stderr, status} = runCLI([
+    it('should assert failures from an extended rcfile', async () => {
+      const {stdout, stderr, status} = await runCLI([
         'assert',
         `--assertions.speed-index=off`,
         `--assertions.interactive=off`,
@@ -405,11 +396,11 @@ describe('Lighthouse CI CLI', () => {
       expect(stderr).toMatchInlineSnapshot(`
         "Checking assertions against 1 URL(s), 2 total run(s)
 
-        2 result(s) for [1mhttp://localhost:XXXX/app/[0m
+        2 result(s) for [1mhttp://localhost:XXXX/app/[0m :
 
           [31mX[0m  [1mfirst-contentful-paint[0m failure for [1mmaxNumericValue[0m assertion
-             First Contentful Paint
-             Documentation: https://web.dev/first-contentful-paint
+               First Contentful Paint
+               https://web.dev/first-contentful-paint
 
                 expected: <=[32m1[0m
                    found: [31mXXXX[0m
@@ -417,8 +408,8 @@ describe('Lighthouse CI CLI', () => {
 
 
           [31mX[0m  [1mperformance-budget[0m.script.size failure for [1mmaxNumericValue[0m assertion
-             Performance budget
-             Documentation: https://developers.google.com/web/tools/lighthouse/audits/budgets
+               Performance budget
+               https://developers.google.com/web/tools/lighthouse/audits/budgets
 
                 expected: <=[32mXXXX[0m
                    found: [31mXXXX[0m
@@ -430,18 +421,18 @@ describe('Lighthouse CI CLI', () => {
       expect(status).toEqual(1);
     });
 
-    it('should assert failures from a budgets file', () => {
-      const {stdout, stderr, status} = runCLI(['assert', `--budgets-file=${budgetsFile}`]);
+    it('should assert failures from a budgets file', async () => {
+      const {stdout, stderr, status} = await runCLI(['assert', `--budgets-file=${budgetsFile}`]);
 
       expect(stdout).toMatchInlineSnapshot(`""`);
       expect(stderr).toMatchInlineSnapshot(`
         "Checking assertions against 1 URL(s), 2 total run(s)
 
-        1 result(s) for [1mhttp://localhost:XXXX/app/[0m
+        1 result(s) for [1mhttp://localhost:XXXX/app/[0m :
 
           [31mX[0m  [1mresource-summary[0m.script.size failure for [1mmaxNumericValue[0m assertion
-             Keep request counts low and transfer sizes small
-             Documentation: https://developers.google.com/web/tools/lighthouse/audits/budgets
+               Keep request counts low and transfer sizes small
+               https://developers.google.com/web/tools/lighthouse/audits/budgets
 
                 expected: <=[32mXXXX[0m
                    found: [31mXXXX[0m
@@ -476,6 +467,22 @@ describe('Lighthouse CI CLI', () => {
     it('should list the projects', async () => {
       const contents = await page.evaluate('document.body.innerHTML');
       expect(contents).toContain('AwesomeCIProjectName');
+      expect(contents).toContain('OtherCIProjectName');
+    });
+
+    it('should delete the project', async () => {
+      const client = new ApiClient({rootURL: `http://localhost:${server.port}`});
+      client.setAdminToken(projectAdminToken);
+      const project = await client.findProjectByToken(projectToken);
+      await client.deleteProject(project.id);
+    });
+
+    it('should list the projects again', async () => {
+      page = await browser.newPage();
+      await page.goto(`http://localhost:${server.port}/app`, {waitUntil: 'networkidle0'});
+      const contents = await page.evaluate('document.body.innerHTML');
+      expect(contents).not.toContain('AwesomeCIProjectName');
+      expect(contents).toContain('OtherCIProjectName');
     });
   });
 });

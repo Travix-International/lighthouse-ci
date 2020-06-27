@@ -44,9 +44,17 @@ function merge(v1, v2) {
 /**
  * Converts a string from camelCase to kebab-case.
  * @param {string} s
+ * @param {{alphanumericOnly?: boolean}} [opts]
  */
-function kebabCase(s) {
-  return s.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+function kebabCase(s, opts) {
+  let kebabed = s.replace(/([a-z])([A-Z])/g, '$1-$2');
+  if (opts && opts.alphanumericOnly) {
+    kebabed = kebabed
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/-+/g, '-')
+      .replace(/(^-|-$)/g, '');
+  }
+  return kebabed.toLowerCase();
 }
 
 /**
@@ -142,6 +150,38 @@ module.exports = {
     return `${s}${padding.repeat(length)}`.slice(0, length);
   },
   /**
+   * @param {any} o1
+   * @param {any} o2
+   * @param {number} [depth]
+   * @return {boolean}
+   */
+  isEqual(o1, o2, depth = 0) {
+    // Protect against infinite loops.
+    if (depth > 100) return false;
+
+    // If they don't share the same type they're not equal.
+    if (typeof o1 !== typeof o2) return false;
+    // If they're not objects, use referential equality with NaN handling.
+    if (Number.isNaN(o1) && Number.isNaN(o2)) return true;
+    if (typeof o1 !== 'object') return o1 === o2;
+    // Try quick referential equality before perfoming deep comparisons.
+    if (o1 === o2) return true;
+    // Check for null.
+    if (!o1 || !o2) return false;
+    // At this point we know they're both truthy objects.
+    // Perform deep inspection on the object's properties.
+
+    if (Array.isArray(o1)) {
+      if (!Array.isArray(o2)) return false;
+      return o1.every((v, i) => this.isEqual(v, o2[i])) && o1.length === o2.length;
+    }
+
+    const o1Keys = Object.keys(o1).sort();
+    const o2Keys = Object.keys(o2).sort();
+    const allChildrenEqual = o1Keys.every(k => this.isEqual(o1[k], o2[k], depth + 1));
+    return allChildrenEqual && this.isEqual(o1Keys, o2Keys);
+  },
+  /**
    * Deep clones an object via JSON.parse/JSON.stringify.
    * @template T
    * @param {T} o
@@ -212,6 +252,14 @@ module.exports = {
     return this.maxBy(items, o => -keyFn(o));
   },
   /**
+   * @template TArr
+   * @param {Array<TArr>} items
+   * @param {(o: TArr) => number} keyFn
+   */
+  sortBy(items, keyFn) {
+    return items.slice().sort((a, b) => keyFn(a) - keyFn(b));
+  },
+  /**
    * @template T
    * @param {T} object
    * @param {Array<keyof T>} propertiesToPick
@@ -250,6 +298,11 @@ module.exports = {
   /** @param {string} uuid */
   shortId(uuid) {
     return uuid.replace(/-/g, '').slice(0, 12);
+  },
+  /** @param {string} string @param {number} number @param {string} [pluralForm] */
+  pluralize(string, number, pluralForm) {
+    pluralForm = pluralForm || `${string}s`;
+    return number === 1 ? string : pluralForm;
   },
   uniqueId: (() => {
     let id = 1;

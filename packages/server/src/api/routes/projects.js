@@ -6,7 +6,11 @@
 'use strict';
 
 const express = require('express');
-const {handleAsyncError} = require('../express-utils.js');
+const {
+  handleAsyncError,
+  validateBuildTokenMiddleware,
+  validateAdminTokenMiddleware,
+} = require('../express-utils.js');
 
 /**
  * @param {{storageMethod: LHCI.ServerCommand.StorageMethod}} context
@@ -20,7 +24,7 @@ function createRouter(context) {
     '/',
     handleAsyncError(async (_, res) => {
       const projects = await context.storageMethod.getProjects();
-      res.json(projects.map(project => ({...project, token: ''})));
+      res.json(projects.map(project => ({...project, token: '', adminToken: ''})));
     })
   );
 
@@ -41,7 +45,7 @@ function createRouter(context) {
       const token = req.body.token;
       const project = await context.storageMethod.findProjectByToken(token);
       if (!project) return res.sendStatus(404);
-      res.json(project);
+      res.json({...project, adminToken: ''});
     })
   );
 
@@ -51,7 +55,7 @@ function createRouter(context) {
     handleAsyncError(async (req, res) => {
       const project = await context.storageMethod.findProjectBySlug(req.params.projectSlug);
       if (!project) return res.sendStatus(404);
-      res.json({...project, token: ''});
+      res.json({...project, token: '', adminToken: ''});
     })
   );
 
@@ -61,7 +65,30 @@ function createRouter(context) {
     handleAsyncError(async (req, res) => {
       const project = await context.storageMethod.findProjectById(req.params.projectId);
       if (!project) return res.sendStatus(404);
-      res.json({...project, token: ''});
+      res.json({...project, token: '', adminToken: ''});
+    })
+  );
+
+  // PUT /projects/:id
+  router.put(
+    '/:projectId',
+    validateAdminTokenMiddleware(context),
+    handleAsyncError(async (req, res) => {
+      await context.storageMethod.updateProject({
+        ...req.body,
+        id: req.params.projectId,
+      });
+      res.sendStatus(204);
+    })
+  );
+
+  // DELETE /projects/:id
+  router.delete(
+    '/:projectId',
+    validateAdminTokenMiddleware(context),
+    handleAsyncError(async (req, res) => {
+      await context.storageMethod.deleteProject(req.params.projectId);
+      res.sendStatus(204);
     })
   );
 
@@ -98,11 +125,22 @@ function createRouter(context) {
   // POST /projects/<id>/builds
   router.post(
     '/:projectId/builds',
+    validateBuildTokenMiddleware(context),
     handleAsyncError(async (req, res) => {
       const unsavedBuild = req.body;
       unsavedBuild.projectId = req.params.projectId;
       const build = await context.storageMethod.createBuild(unsavedBuild);
       res.json(build);
+    })
+  );
+
+  // DELETE /projects/<id>/builds/<id>
+  router.delete(
+    '/:projectId/builds/:buildId',
+    validateAdminTokenMiddleware(context),
+    handleAsyncError(async (req, res) => {
+      await context.storageMethod.deleteBuild(req.params.projectId, req.params.buildId);
+      res.sendStatus(204);
     })
   );
 
@@ -154,6 +192,7 @@ function createRouter(context) {
   // POST /projects/<id>/builds/<id>/runs
   router.post(
     '/:projectId/builds/:buildId/runs',
+    validateBuildTokenMiddleware(context),
     handleAsyncError(async (req, res) => {
       const unsavedRun = req.body;
       unsavedRun.projectId = req.params.projectId;
@@ -175,6 +214,7 @@ function createRouter(context) {
   // PUT /projects/<id>/builds/<id>/lifecycle
   router.put(
     '/:projectId/builds/:buildId/lifecycle',
+    validateBuildTokenMiddleware(context),
     handleAsyncError(async (req, res) => {
       if (req.body !== 'sealed') throw new Error('Invalid lifecycle');
       await context.storageMethod.sealBuild(req.params.projectId, req.params.buildId);

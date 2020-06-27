@@ -170,7 +170,7 @@ describe('getAllAssertionResults', () => {
         actual: 0.8,
         auditId: 'categories',
         auditProperty: 'pwa',
-        expected: 1,
+        expected: 0.9,
         level: 'warn',
         name: 'minScore',
         operator: '>=',
@@ -182,7 +182,7 @@ describe('getAllAssertionResults', () => {
         actual: 0.1,
         auditId: 'categories',
         auditProperty: 'perf',
-        expected: 1,
+        expected: 0.9,
         level: 'error',
         name: 'minScore',
         operator: '>=',
@@ -192,13 +192,13 @@ describe('getAllAssertionResults', () => {
     ]);
   });
 
-  it('should use minScore = 1 by default', () => {
+  it('should use minScore = 0.9 by default', () => {
     const assertions = {
       'first-contentful-paint': ['warn', {aggregationMethod: 'optimistic'}],
     };
 
     const results = getAllAssertionResults({assertions}, lhrs);
-    expect(results).toMatchObject([{actual: 0.8, expected: 1}]);
+    expect(results).toMatchObject([{actual: 0.8, expected: 0.9}]);
   });
 
   it('should respect notApplicable', () => {
@@ -224,7 +224,7 @@ describe('getAllAssertionResults', () => {
     lhrs[0].audits['network-requests'].scoreDisplayMode = 'informative';
     lhrs[1].audits['network-requests'].scoreDisplayMode = 'informative';
     const results = getAllAssertionResults({assertions}, lhrs);
-    expect(results).toMatchObject([{actual: 0, expected: 1, name: 'minScore'}]);
+    expect(results).toMatchObject([{actual: 0, expected: 0.9, name: 'minScore'}]);
   });
 
   it('should de-dupe camelcase audits', () => {
@@ -405,7 +405,7 @@ describe('getAllAssertionResults', () => {
 
       lhrs[1].audits['first-contentful-paint'].score = null;
       const results = getAllAssertionResults({assertions}, lhrs);
-      expect(results).toMatchObject([{actual: 0.6, expected: 1, name: 'minScore'}]);
+      expect(results).toMatchObject([{actual: 0.6, expected: 0.9, name: 'minScore'}]);
     });
 
     it('should handle partial failure with mode median', () => {
@@ -415,7 +415,7 @@ describe('getAllAssertionResults', () => {
 
       lhrs[1].audits['first-contentful-paint'].score = null;
       const results = getAllAssertionResults({assertions}, lhrs);
-      expect(results).toMatchObject([{actual: 0.6, expected: 1, name: 'minScore'}]);
+      expect(results).toMatchObject([{actual: 0.6, expected: 0.9, name: 'minScore'}]);
     });
 
     it('should handle partial failure when mode is pessimistic', () => {
@@ -430,9 +430,10 @@ describe('getAllAssertionResults', () => {
   });
 
   describe('presets', () => {
-    const auditIds = Object.keys(lighthouseAllPreset.assertions).filter(
-      id => lighthouseAllPreset.assertions[id][0] !== 'off'
-    );
+    const auditIds = Object.keys(lighthouseAllPreset.assertions)
+      .filter(id => lighthouseAllPreset.assertions[id][0] !== 'off')
+      .filter(id => id !== 'performance-budget') // budgets are handled separately
+      .sort();
 
     beforeEach(() => {
       const lhrA = {audits: {}};
@@ -451,25 +452,38 @@ describe('getAllAssertionResults', () => {
       };
 
       const results = getAllAssertionResults({preset: 'lighthouse:all', assertions}, lhrs);
-      expect(results).toHaveLength(auditIds.length);
+      const assertedIds = results.map(r => r.auditId).sort();
+      expect(assertedIds).toEqual(auditIds);
 
       for (const result of results) {
         if (result.auditId === 'first-contentful-paint') {
-          expect(result).toMatchObject({level: 'warn', expected: 0.6, actual: 0.5});
+          expect(result).toMatchObject({
+            auditId: result.auditId,
+            level: 'warn',
+            expected: 0.6,
+            actual: 0.5,
+          });
         } else {
-          expect(result).toMatchObject({level: 'error', expected: 1, actual: 0.7});
+          expect(result).toMatchObject({
+            auditId: result.auditId,
+            level: 'error',
+            expected: 0.9,
+            actual: 0.7,
+          });
         }
       }
     });
 
     it('should use the preset as-is', () => {
       const results = getAllAssertionResults({preset: 'lighthouse:all'}, lhrs);
-      expect(results).toHaveLength(auditIds.length);
+      const assertedIds = results.map(r => r.auditId).sort();
+      expect(assertedIds).toEqual(auditIds);
 
       for (const result of results) {
         expect(result).toMatchObject({
+          auditId: result.auditId,
           level: 'error',
-          expected: 1,
+          expected: 0.9,
           actual: 0.7,
           values: [0.5, 0.7],
         });
@@ -554,6 +568,59 @@ describe('getAllAssertionResults', () => {
       const assertions = {
         'performance-budget': 'error',
       };
+
+      // Include the LHR twice to exercise our de-duping logic.
+      const lhrs = [lhrWithBudget, lhrWithBudget];
+      const results = getAllAssertionResults({assertions}, lhrs);
+      expect(results).toEqual([
+        {
+          url: 'http://page-1.com',
+          actual: 3608,
+          auditId: 'performance-budget',
+          auditProperty: 'document.size',
+          expected: 1024,
+          level: 'error',
+          name: 'maxNumericValue',
+          operator: '<=',
+          values: [3608],
+          passed: false,
+        },
+        {
+          url: 'http://page-1.com',
+          actual: 103675,
+          auditId: 'performance-budget',
+          auditProperty: 'script.size',
+          expected: 30720,
+          level: 'error',
+          name: 'maxNumericValue',
+          operator: '<=',
+          values: [103675],
+          passed: false,
+        },
+        {
+          url: 'http://page-1.com',
+          actual: 4,
+          auditId: 'performance-budget',
+          auditProperty: 'script.count',
+          expected: 2,
+          level: 'error',
+          name: 'maxNumericValue',
+          operator: '<=',
+          values: [4],
+          passed: false,
+        },
+      ]);
+    });
+
+    it('should return assertion results for budgets v6 UI', () => {
+      const assertions = {
+        'performance-budget': 'error',
+      };
+
+      for (const item of lhrWithBudget.audits['performance-budget'].details.items) {
+        item.transferSize = item.size;
+        delete item.size;
+      }
 
       // Include the LHR twice to exercise our de-duping logic.
       const lhrs = [lhrWithBudget, lhrWithBudget];
@@ -696,6 +763,159 @@ describe('getAllAssertionResults', () => {
           operator: '<=',
           values: [7, 7],
           passed: false,
+        },
+      ]);
+    });
+
+    it('should assert v6 budgets after the fact', () => {
+      const assertions = {
+        'resource-summary.document.size': ['error', {maxNumericValue: 400}],
+        'resource-summary:font.count': ['warn', {maxNumericValue: 1}],
+        'resource-summary:third-party.count': ['warn', {maxNumericValue: 5}],
+      };
+
+      for (const item of lhrWithResourceSummary.audits['resource-summary'].details.items) {
+        item.transferSize = item.size;
+        delete item.size;
+      }
+
+      const lhrs = [lhrWithResourceSummary, lhrWithResourceSummary];
+      const results = getAllAssertionResults({assertions}, lhrs);
+      expect(results).toEqual([
+        {
+          url: 'http://example.com',
+          actual: 1143,
+          auditId: 'resource-summary',
+          auditProperty: 'document.size',
+          expected: 400,
+          level: 'error',
+          name: 'maxNumericValue',
+          operator: '<=',
+          values: [1143, 1143],
+          passed: false,
+        },
+        {
+          url: 'http://example.com',
+          actual: 2,
+          auditId: 'resource-summary',
+          auditProperty: 'font.count',
+          expected: 1,
+          level: 'warn',
+          name: 'maxNumericValue',
+          operator: '<=',
+          values: [2, 2],
+          passed: false,
+        },
+        {
+          url: 'http://example.com',
+          actual: 7,
+          auditId: 'resource-summary',
+          auditProperty: 'third-party.count',
+          expected: 5,
+          level: 'warn',
+          name: 'maxNumericValue',
+          operator: '<=',
+          values: [7, 7],
+          passed: false,
+        },
+      ]);
+    });
+  });
+
+  describe('user timings', () => {
+    let lhrWithUserTimings;
+
+    beforeEach(() => {
+      lhrWithUserTimings = {
+        finalUrl: 'http://example.com',
+        audits: {
+          'user-timings': {
+            details: {
+              items: [
+                {name: 'Core initializer', startTime: 757, duration: 123, timingType: 'Measure'},
+                {name: 'super_Cool_Measure', startTime: 999, duration: 52, timingType: 'Measure'},
+                {name: 'ultraCoolMark', startTime: 5231, timingType: 'Mark'},
+                {name: 'other:%Cool.Mark', startTime: 12052, timingType: 'Mark'},
+                // Duplicates will be ignored
+                {name: 'super_Cool_Measure', startTime: 0, duration: 4252, timingType: 'Measure'},
+              ],
+            },
+          },
+        },
+      };
+    });
+
+    it('should assert user timing keys', () => {
+      const assertions = {
+        'user-timings.core-initializer': ['error', {maxNumericValue: 100}],
+        'user-timings.super-cool-measure': ['warn', {maxNumericValue: 100}],
+        'user-timings:ultra-cool-mark': ['warn', {maxNumericValue: 5000}],
+        'user-timings:other-cool-mark': ['error', {maxNumericValue: 10000}],
+        'user-timings:missing-timing': ['error', {maxNumericValue: 10000}],
+      };
+
+      const lhrs = [lhrWithUserTimings, lhrWithUserTimings];
+      const results = getAllAssertionResults({assertions, includePassedAssertions: true}, lhrs);
+      expect(results).toEqual([
+        {
+          actual: 123,
+          auditId: 'user-timings',
+          auditProperty: 'core-initializer',
+          expected: 100,
+          level: 'error',
+          name: 'maxNumericValue',
+          operator: '<=',
+          passed: false,
+          url: 'http://example.com',
+          values: [123, 123],
+        },
+        {
+          actual: 52,
+          auditId: 'user-timings',
+          auditProperty: 'super-cool-measure',
+          expected: 100,
+          level: 'warn',
+          name: 'maxNumericValue',
+          operator: '<=',
+          passed: true,
+          url: 'http://example.com',
+          values: [52, 52],
+        },
+        {
+          actual: 5231,
+          auditId: 'user-timings',
+          auditProperty: 'ultra-cool-mark',
+          expected: 5000,
+          level: 'warn',
+          name: 'maxNumericValue',
+          operator: '<=',
+          passed: false,
+          url: 'http://example.com',
+          values: [5231, 5231],
+        },
+        {
+          actual: 12052,
+          auditId: 'user-timings',
+          auditProperty: 'other-cool-mark',
+          expected: 10000,
+          level: 'error',
+          name: 'maxNumericValue',
+          operator: '<=',
+          passed: false,
+          url: 'http://example.com',
+          values: [12052, 12052],
+        },
+        {
+          actual: 0,
+          auditId: 'user-timings',
+          auditProperty: 'missing-timing',
+          expected: 1,
+          level: 'error',
+          name: 'auditRan',
+          operator: '>=',
+          passed: false,
+          url: 'http://example.com',
+          values: [0, 0],
         },
       ]);
     });

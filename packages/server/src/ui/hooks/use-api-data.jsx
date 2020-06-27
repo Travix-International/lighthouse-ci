@@ -24,6 +24,7 @@
 
 import {useState, useEffect, useMemo} from 'preact/hooks';
 import ApiClient from '@lhci/utils/src/api-client.js';
+import _ from '@lhci/utils/src/lodash.js';
 
 export const api = new ApiClient({
   rootURL: window.location.origin,
@@ -31,7 +32,40 @@ export const api = new ApiClient({
   fetch: window.fetch.bind(window),
 });
 
+/** @param {string} projectId @return {string|undefined} */
+function getAdminTokenForProject(projectId) {
+  return localStorage.getItem(`adminToken__${projectId}`) || undefined;
+}
+
+/** @param {string} projectId @param {string} adminToken */
+function setAdminTokenForProject(projectId, adminToken) {
+  return localStorage.setItem(`adminToken__${projectId}`, adminToken);
+}
+
+/** @param {string} projectId @return {[string|undefined, (s: string) => void]} */
+export function useAdminToken(projectId) {
+  const adminToken = getAdminTokenForProject(projectId);
+  // We only use state to trigger a rerender, not to actually keep track of the data
+  const setAdminToken = useState(adminToken)[1];
+
+  return [
+    adminToken,
+    token => {
+      setAdminTokenForProject(projectId, token);
+      setAdminToken(token);
+    },
+  ];
+}
+
 /** @typedef {'loading'|'error'|'loaded'} LoadingState */
+
+// We cache the last result to getRuns so repeated requests for a particular LHR aren't repeated.
+// This could be more sophisticated in the future to de-deduplicate requests and be more aggressive.
+// But we don't really need it do be yet, so we'll stay conservative.
+/** @type {Partial<Record<keyof ApiClient, {parameters: any, result: any}>>} */
+const lastCachedApiData = {
+  getRuns: {parameters: undefined, result: undefined},
+};
 
 /**
  * @template {keyof StrictOmit<ApiClient, '_rootURL'|'_URL'|'_extraHeaders'|'_fetch'>} T
@@ -42,6 +76,7 @@ export const api = new ApiClient({
 function useApiData(apiMethod, apiParameters) {
   const [loadingState, setLoadingState] = useState(/** @type {LoadingState} */ ('loading'));
   const [apiData, setApiData] = useState(/** @type {any} */ (undefined));
+  const cache = lastCachedApiData[apiMethod];
 
   useEffect(() => {
     if (!apiParameters) return;
@@ -49,10 +84,23 @@ function useApiData(apiMethod, apiParameters) {
     // Wrap in IIFE because the return value of useEffect should be a cleanup function, not a Promise.
     (async () => {
       try {
-        // @ts-ignore - tsc can't figure out that apiParameters matches our apiMethod signature
-        const response = await api[apiMethod](...apiParameters);
+        // Use the cached response if the parameters match.
+        let response = undefined;
+        if (cache && _.isEqual(apiParameters, cache.parameters)) {
+          response = cache.result;
+        } else {
+          // @ts-ignore - tsc can't figure out that apiParameters matches our apiMethod signature
+          response = await api[apiMethod](...apiParameters);
+        }
+
         setApiData(response);
         setLoadingState('loaded');
+
+        // If this is supposed to be cached, stash the result and parameters used.
+        if (cache) {
+          cache.result = response;
+          cache.parameters = apiParameters;
+        }
       } catch (err) {
         console.error(err); // eslint-disable-line no-console
         setLoadingState('error');
@@ -61,6 +109,13 @@ function useApiData(apiMethod, apiParameters) {
   }, apiParameters);
 
   return [loadingState, apiData];
+}
+
+/**
+ * @return {[LoadingState, string | undefined]}
+ */
+export function useVersion() {
+  return useApiData('getVersion', []);
 }
 
 /**
@@ -123,11 +178,18 @@ export function useBuild(projectId, buildId) {
 
 /**
  * @param {string|undefined} projectId
- * @param {string|undefined} buildId
+ * @param {string|null|undefined} buildId
  * @return {[LoadingState, Array<{url: string}> | undefined]}
  */
 export function useBuildURLs(projectId, buildId) {
-  return useApiData('getUrls', projectId && buildId ? [projectId, buildId] : undefined);
+  const [loadingState, data] = useApiData(
+    'getUrls',
+    projectId && buildId ? [projectId, buildId] : undefined
+  );
+
+  // If we receive a `null` that means it's explicitly not available, so short-circuit and return empty
+  if (buildId === null) return ['loaded', []];
+  return [loadingState, data];
 }
 
 /**

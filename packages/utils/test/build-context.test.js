@@ -35,6 +35,13 @@ describe('build-context.js', () => {
   //   feat(server): add version endpoint
   //
   const hash = 'e7f1b0fa3aebb6ef95e44c0d0b820433ffdd2e63';
+  // commit aebce298f6727ab942b065d72a60534802a15295 (tag: v0.3.12)
+  // Author: Patrick Hulce <patrick.hulce@gmail.com>
+  // Date:   Thu Mar 19 22:37:31 2020 -0500
+  //
+  //   fix(cli): revert to lhci github status context (#249)
+  //
+  const versionHash = 'aebce298f6727ab942b065d72a60534802a15295';
 
   describe('#getCurrentHash()', () => {
     it('should work', () => {
@@ -105,15 +112,23 @@ describe('build-context.js', () => {
     });
   });
 
-  describe('#getAncestorHashForMaster()', () => {
+  describe('#getGravatarUrlFromEmail()', () => {
     it('should work', () => {
-      expect(buildContext.getAncestorHashForMaster(hash)).toEqual(
+      expect(buildContext.getGravatarUrlFromEmail('patrick.hulce@gmail.com')).toEqual(
+        'https://www.gravatar.com/avatar/78bafdcaf40e20b90bb76b9aa5834e11.jpg?d=identicon'
+      );
+    });
+  });
+
+  describe('#getAncestorHashForBase()', () => {
+    it('should work', () => {
+      expect(buildContext.getAncestorHashForBase(hash)).toEqual(
         'ec95bc8ad992c9d68845040d612fbbbe94ad7f13'
       );
     });
 
     it('should return empty string when it fails', () => {
-      expect(buildContext.getAncestorHashForMaster('random' + Math.random())).toEqual('');
+      expect(buildContext.getAncestorHashForBase('random' + Math.random())).toEqual('');
     });
 
     it('should respect env override', () => {
@@ -128,8 +143,13 @@ describe('build-context.js', () => {
       expect(buildContext.getAncestorHashForBranch(hash)).toEqual(hash);
     });
 
+    it('should work for alternate branches', () => {
+      // the merge-base of master with itself is just itself.
+      expect(buildContext.getAncestorHashForBranch('HEAD', 'v0.3.12')).toEqual(versionHash);
+    });
+
     it('should return empty string when it fails', () => {
-      expect(buildContext.getAncestorHashForMaster('random' + Math.random())).toEqual('');
+      expect(buildContext.getAncestorHashForBase('random' + Math.random())).toEqual('');
     });
   });
 
@@ -152,6 +172,25 @@ describe('build-context.js', () => {
   });
 
   describe('#getGitHubRepoSlug', () => {
+    const DEFAULT_API_HOST = 'https://api.github.com';
+
+    it('should return undefined when there is no valid slug on github', () => {
+      process.env.LHCI_BUILD_CONTEXT__GIT_REMOTE = `${DEFAULT_API_HOST}/broken/url/repo`;
+      expect(buildContext.getGitHubRepoSlug()).toEqual(undefined);
+    });
+
+    it('should return undefined when there is no valid slug on custom', () => {
+      const apiHost = 'https://github.example.com';
+      process.env.LHCI_BUILD_CONTEXT__GIT_REMOTE = `${apiHost}/broken/url/repo`;
+      expect(buildContext.getGitHubRepoSlug(apiHost)).toEqual(undefined);
+    });
+
+    it('should return undefined when there is no valid URL on custom', () => {
+      const apiHost = 'https://github.example.com';
+      process.env.LHCI_BUILD_CONTEXT__GIT_REMOTE = `random/broken/url/repo`;
+      expect(buildContext.getGitHubRepoSlug(apiHost)).toEqual(undefined);
+    });
+
     it('should work for circle CI', () => {
       process.env.CIRCLE_PROJECT_USERNAME = 'SuperLighthouse';
       process.env.CIRCLE_PROJECT_REPONAME = 'lhci';
@@ -161,6 +200,34 @@ describe('build-context.js', () => {
     it('should respect env override', () => {
       process.env.LHCI_BUILD_CONTEXT__GITHUB_REPO_SLUG = 'SuperLighthouse/manual';
       expect(buildContext.getGitHubRepoSlug()).toEqual('SuperLighthouse/manual');
+    });
+
+    it('should work when enterprise API host is provided with ssh remote', () => {
+      const apiHost = 'https://github.example.com';
+      process.env.LHCI_BUILD_CONTEXT__GIT_REMOTE = 'git@github.example.com:corp/repo.git';
+      expect(buildContext.getGitHubRepoSlug(apiHost)).toEqual('corp/repo');
+    });
+
+    it('should work when enterprise API host is provided with https remote', () => {
+      const apiHost = 'https://github.example.com';
+      process.env.LHCI_BUILD_CONTEXT__GIT_REMOTE = `${apiHost}/corp/repo.git`;
+      expect(buildContext.getGitHubRepoSlug(apiHost)).toEqual('corp/repo');
+    });
+
+    it('should work when default API host is provided', () => {
+      expect(buildContext.getGitHubRepoSlug(DEFAULT_API_HOST)).toEqual(
+        'GoogleChrome/lighthouse-ci'
+      );
+    });
+
+    it('should work when git remote does not end in .git', () => {
+      process.env.LHCI_BUILD_CONTEXT__GIT_REMOTE = 'https://github.com/GoogleChrome/lighthouse';
+      expect(buildContext.getGitHubRepoSlug()).toEqual('GoogleChrome/lighthouse');
+    });
+
+    it('should work when git remote does end in .git', () => {
+      process.env.LHCI_BUILD_CONTEXT__GIT_REMOTE = 'git@github.com:example/repo.git';
+      expect(buildContext.getGitHubRepoSlug()).toEqual('example/repo');
     });
 
     it('should fallback to getGitRemote result', () => {

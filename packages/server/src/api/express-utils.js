@@ -5,9 +5,15 @@
  */
 'use strict';
 
+const basicAuth = require('express-basic-auth');
+const ApiClient = require('@lhci/utils/src/api-client.js');
+const {hashAdminToken} = require('./storage/auth.js');
+
+class E404 extends Error {}
 class E422 extends Error {}
 
 module.exports = {
+  E404,
   E422,
   /**
    * @param {import('express-serve-static-core').RequestHandler} handler
@@ -27,6 +33,62 @@ module.exports = {
     };
   },
   /**
+   * @param {{storageMethod: LHCI.ServerCommand.StorageMethod}} context
+   * @return {import('express-serve-static-core').RequestHandler}
+   */
+  validateBuildTokenMiddleware(context) {
+    return (req, res, next) => {
+      Promise.resolve()
+        .then(async () => {
+          const project = await context.storageMethod.findProjectById(req.params.projectId);
+          if (!project) throw new Error('Invalid token');
+
+          const buildToken = req.header('x-lhci-build-token') || '';
+          if (buildToken !== project.token) throw new Error('Invalid token');
+
+          next();
+        })
+        .catch(err => {
+          res.status(403);
+          res.send(JSON.stringify({message: err.message}));
+        });
+    };
+  },
+  /**
+   * @param {{storageMethod: LHCI.ServerCommand.StorageMethod}} context
+   * @return {import('express-serve-static-core').RequestHandler}
+   */
+  validateAdminTokenMiddleware(context) {
+    return (req, res, next) => {
+      Promise.resolve()
+        .then(async () => {
+          const project = await context.storageMethod.findProjectById(req.params.projectId);
+          if (!project) throw new Error('Invalid token');
+
+          const adminToken = req.header('x-lhci-admin-token') || '';
+          const hashedAdminToken = hashAdminToken(adminToken, project.id);
+          if (hashedAdminToken !== project.adminToken) throw new Error('Invalid token');
+
+          next();
+        })
+        .catch(err => {
+          res.status(403);
+          res.send(JSON.stringify({message: err.message}));
+        });
+    };
+  },
+  /**
+   * @param {{options: LHCI.ServerCommand.Options}} context
+   * @return {import('express-serve-static-core').RequestHandler|undefined}
+   */
+  createBasicAuthMiddleware(context) {
+    if (!context.options.basicAuth) return undefined;
+    const {username = ApiClient.DEFAULT_BASIC_AUTH_USERNAME, password} = context.options.basicAuth;
+    if (!password) return undefined;
+
+    return basicAuth({users: {[username]: password}, challenge: true});
+  },
+  /**
    * @param {Error} err
    * @param {import('express-serve-static-core').Request} req
    * @param {import('express-serve-static-core').Response} res
@@ -35,6 +97,12 @@ module.exports = {
   errorMiddleware(err, req, res, next) {
     if (err instanceof E422) {
       res.status(422);
+      res.send(JSON.stringify({message: err.message}));
+      return;
+    }
+
+    if (err instanceof E404) {
+      res.status(404);
       res.send(JSON.stringify({message: err.message}));
       return;
     }

@@ -10,6 +10,7 @@ const uuid = require('uuid');
 const Umzug = require('umzug');
 const Sequelize = require('sequelize');
 const {omit, padEnd} = require('@lhci/utils/src/lodash.js');
+const {hashAdminToken, generateAdminToken} = require('../auth.js');
 const {E422} = require('../../express-utils.js');
 const StorageMethod = require('../storage-method.js');
 const projectModelDefn = require('./project-model.js');
@@ -77,8 +78,9 @@ function validatePartialUuidOrUndefined(id) {
 function createSequelize(options) {
   const dialect = options.sqlDialect;
   const sequelizeOptions = {
-    operatorsAliases: false,
     logging: () => {},
+    ...options.sequelizeOptions,
+    operatorsAliases: false,
   };
 
   if (dialect === 'sqlite') {
@@ -239,6 +241,30 @@ class SqlStorageMethod {
   }
 
   /**
+   * @param {string} projectId
+   * @return {Promise<void>}
+   */
+  async deleteProject(projectId) {
+    const {sequelize, projectModel, buildModel, runModel, statisticModel} = this._sql();
+    const project = await this._findByPk(projectModel, projectId);
+    if (!project) throw new E422('Invalid project ID');
+
+    const transaction = await sequelize.transaction();
+
+    try {
+      await statisticModel.destroy({where: {projectId}, transaction});
+      await runModel.destroy({where: {projectId}, transaction});
+      await buildModel.destroy({where: {projectId}, transaction});
+      await projectModel.destroy({where: {id: projectId}, transaction});
+
+      await transaction.commit();
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  }
+
+  /**
    * @param {string} token
    * @return {Promise<LHCI.ServerCommand.Project | undefined>}
    */
@@ -270,7 +296,7 @@ class SqlStorageMethod {
   }
 
   /**
-   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'>} unsavedProject
+   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'|'adminToken'>} unsavedProject
    * @return {Promise<LHCI.ServerCommand.Project>}
    */
   async createProject(unsavedProject) {
@@ -278,14 +304,43 @@ class SqlStorageMethod {
   }
 
   /**
-   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'>} unsavedProject
+   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'|'adminToken'>} unsavedProject
    * @return {Promise<LHCI.ServerCommand.Project>}
    */
   async _createProject(unsavedProject) {
     const {projectModel} = this._sql();
     if (unsavedProject.name.length < 4) throw new E422('Project name too short');
-    const project = await projectModel.create({...unsavedProject, token: uuid.v4(), id: uuid.v4()});
-    return clone(project);
+    const projectId = uuid.v4();
+    const adminToken = generateAdminToken();
+    const project = await projectModel.create({
+      ...unsavedProject,
+      baseBranch: unsavedProject.baseBranch || 'master',
+      adminToken: hashAdminToken(adminToken, projectId),
+      token: uuid.v4(),
+      id: projectId,
+    });
+
+    // Replace the adminToken with the original non-hashed version.
+    // This will be the only time it's readable other than reset.
+    return {...clone(project), adminToken};
+  }
+
+  /**
+   * @param {Pick<LHCI.ServerCommand.Project, 'id'|'baseBranch'|'externalUrl'|'name'>} projectUpdates
+   * @return {Promise<void>}
+   */
+  async updateProject(projectUpdates) {
+    const {projectModel} = this._sql();
+    if (projectUpdates.name.length < 4) throw new E422('Project name too short');
+
+    await projectModel.update(
+      {
+        name: projectUpdates.name,
+        externalUrl: projectUpdates.externalUrl,
+        baseBranch: projectUpdates.baseBranch,
+      },
+      {where: {id: projectUpdates.id}}
+    );
   }
 
   /**
@@ -379,6 +434,31 @@ class SqlStorageMethod {
   /**
    * @param {string} projectId
    * @param {string} buildId
+   * @return {Promise<void>}
+   */
+  async deleteBuild(projectId, buildId) {
+    const {sequelize, buildModel, runModel, statisticModel} = this._sql();
+    const build = await this._findByPk(buildModel, buildId);
+    if (!build) throw new E422('Invalid build ID');
+    if (build.projectId !== projectId) throw new E422('Invalid project ID');
+
+    const transaction = await sequelize.transaction();
+
+    try {
+      await statisticModel.destroy({where: {projectId, buildId}, transaction});
+      await runModel.destroy({where: {projectId, buildId}, transaction});
+      await buildModel.destroy({where: {id: buildId}, transaction});
+
+      await transaction.commit();
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  }
+
+  /**
+   * @param {string} projectId
+   * @param {string} buildId
    * @return {Promise<LHCI.ServerCommand.Build | undefined>}
    */
   async findBuildById(projectId, buildId) {
@@ -400,8 +480,11 @@ class SqlStorageMethod {
     //      <= a82fb732-ffff-ffff-ffff-ffffffffffff
     const [leadingZeros = ''] = buildId.match(/^0+/) || [];
     const numericValue = parseInt(buildId.replace(/-/g, ''), 16);
-    const lowerUuid = formatAsUuid(leadingZeros + numericValue.toString(16), '0');
-    const upperUuid = formatAsUuid(leadingZeros + numericValue.toString(16), 'f');
+    // If the prefix *is* 0 we don't want to double count it.
+    let prefix = numericValue.toString(16);
+    if (numericValue !== 0) prefix = `${leadingZeros}${prefix}`;
+    const lowerUuid = formatAsUuid(prefix, '0');
+    const upperUuid = formatAsUuid(prefix, 'f');
     const builds = await buildModel.findAll({
       where: {id: {[Sequelize.Op.gte]: lowerUuid, [Sequelize.Op.lte]: upperUuid}, projectId},
       limit: 2,
@@ -417,13 +500,14 @@ class SqlStorageMethod {
    * @return {Promise<LHCI.ServerCommand.Build | undefined>}
    */
   async findAncestorBuildById(projectId, buildId) {
-    const {buildModel} = this._sql();
+    const {projectModel, buildModel} = this._sql();
+    const project = await this._findByPk(projectModel, projectId);
     const build = await this._findByPk(buildModel, buildId);
-    if (!build || (build && build.projectId !== projectId)) return undefined;
+    if (!project || !build || (build && build.projectId !== projectId)) return undefined;
 
     if (build.ancestorHash) {
       const ancestorsByHash = await this._findAll(buildModel, {
-        where: {projectId: build.projectId, branch: 'master', hash: build.ancestorHash},
+        where: {projectId: build.projectId, branch: project.baseBranch, hash: build.ancestorHash},
         limit: 1,
       });
 
@@ -432,7 +516,7 @@ class SqlStorageMethod {
 
     const where = {
       projectId: build.projectId,
-      branch: 'master',
+      branch: project.baseBranch,
       id: {[Sequelize.Op.ne]: build.id},
     };
 
@@ -442,7 +526,7 @@ class SqlStorageMethod {
       limit: 1,
     });
 
-    if (build.branch === 'master') {
+    if (build.branch === project.baseBranch) {
       return nearestBuildBefore[0];
     }
 
@@ -500,6 +584,7 @@ class SqlStorageMethod {
     if (!build || build.lifecycle !== 'unsealed') throw new E422('Invalid build');
     if (typeof unsavedRun.lhr !== 'string') throw new E422('Invalid LHR');
     if (unsavedRun.representative) throw new E422('Invalid representative value');
+    if (unsavedRun.url.length > 256) throw new E422('URL too long');
 
     const run = await runModel.create({...unsavedRun, representative: false, id: uuid.v4()});
     return clone(run);
@@ -565,6 +650,31 @@ class SqlStorageMethod {
   async _invalidateStatistics(projectId, buildId) {
     const {statisticModel} = this._sql();
     await statisticModel.update({version: 0}, {where: {projectId, buildId}});
+  }
+
+  /**
+   * @param {string} projectId
+   * @return {Promise<string>}
+   */
+  async _resetAdminToken(projectId) {
+    const {projectModel} = this._sql();
+    const newToken = generateAdminToken();
+    await projectModel.update(
+      {adminToken: hashAdminToken(newToken, projectId)},
+      {where: {id: projectId}}
+    );
+    return newToken;
+  }
+
+  /**
+   * @param {string} projectId
+   * @return {Promise<string>}
+   */
+  async _resetProjectToken(projectId) {
+    const {projectModel} = this._sql();
+    const newToken = uuid.v4();
+    await projectModel.update({token: newToken}, {where: {id: projectId}});
+    return newToken;
   }
 }
 

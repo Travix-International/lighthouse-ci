@@ -9,14 +9,16 @@ jest.retryTimes(3);
 
 /* eslint-env jest */
 
+const fs = require('fs');
 const path = require('path');
+const puppeteer = require('puppeteer');
 const {runCLI} = require('./test-utils.js');
 
 describe('Lighthouse CI collect CLI with puppeteer', () => {
   const autorunDir = path.join(__dirname, 'fixtures/puppeteer');
 
-  it('should run lighthouse on an auth page', () => {
-    const {stdout, stderr, status} = runCLI(
+  it('should run lighthouse on an auth page', async () => {
+    const {stdout, stderr, status} = await runCLI(
       [
         'collect',
         '-n=1',
@@ -49,4 +51,51 @@ describe('Lighthouse CI collect CLI with puppeteer', () => {
     `);
     expect(status).toEqual(0);
   }, 180000);
+
+  it('should run lighthouse using puppeteers chromium without puppeteer script', async () => {
+    const {stdout, stderr, status} = await runCLI(
+      [
+        'collect',
+        '-n=1',
+        '--url=http://localhost:52426/public',
+        '--start-server-command=node ./auth-server.js',
+        `--chrome-path=${puppeteer.executablePath()}`,
+      ],
+      {cwd: autorunDir}
+    );
+
+    expect(stdout).toMatchInlineSnapshot(`
+      "Started a web server with \\"node ./auth-server.js\\"...
+      Running Lighthouse 1 time(s) on http://localhost:XXXX/public
+      Run #1...done.
+      Done running Lighthouse!
+      "
+    `);
+    expect(stderr).toMatchInlineSnapshot(`""`);
+    expect(status).toEqual(0);
+
+    const files = fs.readdirSync(path.join(autorunDir, '.lighthouseci'));
+    const report = files.find(file => /lhr.*\.json$/.test(file));
+    const lhr = JSON.parse(fs.readFileSync(path.join(autorunDir, '.lighthouseci', report)));
+    expect(lhr.userAgent).toContain('HeadlessChrome/77.0.3835.0'); // make sure the right chrome was used
+  }, 180000);
+
+  it('should not fail on providing defaults without Chrome installations', async () => {
+    const {stdout, stderr, status} = await runCLI(['collect', '--help'], {
+      cwd: autorunDir,
+      env: {LHCITEST_IGNORE_CHROME_INSTALLATIONS: '1'},
+    });
+
+    // Make sure there is no default chromePath found
+    const chromePathHelp = stdout.match(/--chromePath.*\n.*\n.*/);
+    expect(chromePathHelp).toMatchInlineSnapshot(`
+      Array [
+        "--chromePath               The path to the Chrome or Chromium executable to use for collection.
+        --puppeteerScript          The path to a script that manipulates the browser with puppeteer before running Lighthouse, used for auth.
+        --puppeteerLaunchOptions   The object of puppeteer launch options",
+      ]
+    `);
+    expect(stderr).toMatchInlineSnapshot(`""`);
+    expect(status).toEqual(0);
+  });
 });

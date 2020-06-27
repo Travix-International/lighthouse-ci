@@ -8,7 +8,7 @@ import {h} from 'preact';
 import {Link} from 'preact-router';
 import './page-sidebar.css';
 import {AsyncLoader} from '../components/async-loader';
-import {useProjectList} from '../hooks/use-api-data';
+import {useProjectList, useVersion} from '../hooks/use-api-data';
 import clsx from 'clsx';
 import {useRouteParams} from '../hooks/use-route-params';
 
@@ -16,6 +16,7 @@ import {useRouteParams} from '../hooks/use-route-params';
 export const PageSidebar = props => {
   const {projectSlug} = useRouteParams();
   const [loadingState, projects] = useProjectList();
+  const [_, version = ''] = useVersion();
 
   return (
     <div
@@ -32,9 +33,9 @@ export const PageSidebar = props => {
           asyncData={projects}
           render={projects => {
             return (
-              <ul role="navigation">
+              <ul>
                 {projects.map(project => (
-                  <li key={project.id}>
+                  <li className="page-sidebar__link" key={project.id}>
                     <Link
                       className={clsx({
                         active: project.slug === projectSlug,
@@ -44,6 +45,12 @@ export const PageSidebar = props => {
                     >
                       {project.name}
                     </Link>
+                    <Link
+                      href={`/app/projects/${project.slug}/settings`}
+                      onClick={() => props.setIsOpen(false)}
+                    >
+                      <i className="material-icons">settings</i>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -52,16 +59,10 @@ export const PageSidebar = props => {
         />
       </div>
       <div className="page-sidebar__footer">
-        <span className="page-sidebar__version">
-          {/* This environment variable is set by npm/yarn on any script command. */}v
-          {process.env.npm_package_version}
-        </span>{' '}
-        |{' '}
+        <span className="page-sidebar__version">v{version}</span> |{' '}
         <a
           className="page-sidebar__issue-link"
-          href={`https://github.com/GoogleChrome/lighthouse-ci/releases/tag/v${
-            process.env.npm_package_version
-          }`}
+          href={`https://github.com/GoogleChrome/lighthouse-ci/releases/tag/v${version}`}
           target="_blank"
           rel="noopener noreferrer"
         >

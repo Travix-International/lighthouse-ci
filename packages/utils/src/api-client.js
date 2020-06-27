@@ -8,18 +8,37 @@
 const URL = require('url').URL;
 const fetch = require('isomorphic-fetch');
 
+/** @type {(s: string) => string} */
+const btoa = typeof window === 'undefined' ? s => Buffer.from(s).toString('base64') : window.btoa; // eslint-disable-line no-undef
+
 class ApiClient {
   /**
-   * @param {{rootURL: string, fetch?: import('isomorphic-fetch'), URL?: typeof import('url').URL, extraHeaders?: Record<string, string>}} options
+   * @param {{rootURL: string, fetch?: import('isomorphic-fetch'), URL?: typeof import('url').URL, extraHeaders?: Record<string, string>, basicAuth?: LHCI.ServerCommand.Options['basicAuth']}} options
    */
   constructor(options) {
     this._rootURL = options.rootURL;
+    /** @type {Record<string, string>} */
     this._extraHeaders = options.extraHeaders || {};
     this._fetch = options.fetch || fetch;
     this._URL = options.URL || URL;
 
+    if (options.basicAuth && options.basicAuth.password) {
+      const {username = ApiClient.DEFAULT_BASIC_AUTH_USERNAME, password} = options.basicAuth;
+      this._extraHeaders.Authorization = `Basic ${btoa(`${username}:${password}`)}`;
+    }
+
     /** @type {LHCI.ServerCommand.StorageMethod} */
     const typecheck = this; // eslint-disable-line no-unused-vars
+  }
+
+  /** @param {string|undefined} token */
+  setBuildToken(token) {
+    this._extraHeaders = {...this._extraHeaders, 'x-lhci-build-token': token || ''};
+  }
+
+  /** @param {string|undefined} token */
+  setAdminToken(token) {
+    this._extraHeaders = {...this._extraHeaders, 'x-lhci-admin-token': token || ''};
   }
 
   /**
@@ -27,7 +46,11 @@ class ApiClient {
    * @return {URL}
    */
   _normalizeURL(url) {
-    return new this._URL(url, this._rootURL);
+    if (!url.startsWith('/')) throw new Error(`Cannot normalize "${url}" without leading /`);
+    const rootWithoutSlash = this._rootURL.endsWith('/')
+      ? this._rootURL.slice(0, this._rootURL.length - 1)
+      : this._rootURL;
+    return new this._URL(`${rootWithoutSlash}${url}`);
   }
 
   /**
@@ -58,7 +81,6 @@ class ApiClient {
       throw error;
     }
 
-    if (response.status === 204) return;
     const json = await response.json();
     return json;
   }
@@ -114,6 +136,19 @@ class ApiClient {
    */
   async _put(url, body) {
     return this._fetchWithRequestBody('PUT', url, body);
+  }
+
+  /**
+   * @param {string} rawUrl
+   * @return {Promise<void>}
+   */
+  async _delete(rawUrl) {
+    const headers = {...this._extraHeaders};
+    const response = await this._fetch(this._normalizeURL(rawUrl).href, {
+      method: 'DELETE',
+      headers,
+    });
+    return this._convertFetchResponseToReturnValue(response);
   }
 
   /**
@@ -173,11 +208,27 @@ class ApiClient {
   }
 
   /**
-   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'>} unsavedProject
+   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'|'adminToken'>} unsavedProject
    * @return {Promise<LHCI.ServerCommand.Project>}
    */
   async createProject(unsavedProject) {
     return this._post(`/v1/projects`, unsavedProject);
+  }
+
+  /**
+   * @param {Pick<LHCI.ServerCommand.Project, 'id'|'baseBranch'|'externalUrl'|'name'>} projectUpdates
+   * @return {Promise<void>}
+   */
+  async updateProject(projectUpdates) {
+    return this._put(`/v1/projects/${projectUpdates.id}`, projectUpdates);
+  }
+
+  /**
+   * @param {string} projectId
+   * @return {Promise<void>}
+   */
+  async deleteProject(projectId) {
+    return this._delete(`/v1/projects/${projectId}`);
   }
 
   /**
@@ -213,6 +264,15 @@ class ApiClient {
    */
   async sealBuild(projectId, buildId) {
     return this._put(`/v1/projects/${projectId}/builds/${buildId}/lifecycle`, 'sealed');
+  }
+
+  /**
+   * @param {string} projectId
+   * @param {string} buildId
+   * @return {Promise<void>}
+   */
+  async deleteBuild(projectId, buildId) {
+    return this._delete(`/v1/projects/${projectId}/builds/${buildId}`);
   }
 
   /**
@@ -273,8 +333,7 @@ class ApiClient {
   }
 
   /**
-   * @protected
-   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'>} unsavedProject
+   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'|'adminToken'>} unsavedProject
    * @return {Promise<LHCI.ServerCommand.Project>}
    */
   // eslint-disable-next-line no-unused-vars
@@ -283,7 +342,6 @@ class ApiClient {
   }
 
   /**
-   * @protected
    * @param {StrictOmit<LHCI.ServerCommand.Statistic, 'id'>} unsavedStatistic
    * @return {Promise<LHCI.ServerCommand.Statistic>}
    */
@@ -312,7 +370,52 @@ class ApiClient {
     throw new Error('Unimplemented');
   }
 
+  /**
+   * @param {string} projectId
+   * @return {Promise<string>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async _resetAdminToken(projectId) {
+    throw new Error('Unimplemented');
+  }
+
+  /**
+   * @param {string} projectId
+   * @return {Promise<string>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async _resetProjectToken(projectId) {
+    throw new Error('Unimplemented');
+  }
+
   async close() {}
+
+  static get DEFAULT_BASIC_AUTH_USERNAME() {
+    return 'lhci';
+  }
+
+  /**
+   * Computes whether the two version strings are API-version compatible.
+   * For now this is just semver, but could eventually take more into account.
+   * @param {string} clientVersion
+   * @param {string} serverVersion
+   */
+  static isApiVersionCompatible(clientVersion, serverVersion) {
+    const partsClient = clientVersion.match(/(\d+)\.(\d+)\.\d+/);
+    const partsServer = serverVersion.match(/(\d+)\.(\d+)\.\d+/);
+    if (!partsClient || !partsServer) return false;
+
+    let majorVersionClient = Number(partsClient[1]);
+    let majorVersionServer = Number(partsServer[1]);
+    if (majorVersionClient !== majorVersionServer) return false;
+
+    if (majorVersionClient === 0) majorVersionClient = Number(partsClient[2]);
+    if (majorVersionServer === 0) majorVersionServer = Number(partsServer[2]);
+
+    return (
+      majorVersionClient === majorVersionServer || majorVersionClient === majorVersionServer + 1
+    );
+  }
 }
 
 module.exports = ApiClient;

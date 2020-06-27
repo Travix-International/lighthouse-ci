@@ -22,6 +22,11 @@ describe('Lighthouse CI API Client', () => {
     client = new ApiClient({rootURL: 'http://localhost:9000/', fetch: fetchMock});
     await client.getProjects();
     expect(fetchMock).toHaveBeenCalledWith(`http://localhost:9000/v1/projects`, {headers: {}});
+
+    fetchMock = jest.fn().mockImplementation(fetchMockImpl);
+    client = new ApiClient({rootURL: 'http://localhost:9000/lhci/', fetch: fetchMock});
+    await client.getProjects();
+    expect(fetchMock).toHaveBeenCalledWith(`http://localhost:9000/lhci/v1/projects`, {headers: {}});
   });
 
   it('should pass through headers', async () => {
@@ -53,6 +58,35 @@ describe('Lighthouse CI API Client', () => {
         `http://localhost:9000/v1/projects/124/builds?branch=master`,
         {headers: {}}
       );
+    });
+  });
+
+  describe('#isApiVersionCompatible', () => {
+    const isCompatible = (s1, s2) => ApiClient.isApiVersionCompatible(s1, s2);
+
+    it('should recognize compatible versions', () => {
+      expect(isCompatible('v0.0.1', 'v0.0.2')).toBe(true);
+      expect(isCompatible('1.0.1', '1.4.2')).toBe(true);
+      expect(isCompatible('2.1.1-alpha.1', '2.0.0')).toBe(true);
+      expect(isCompatible('v0.3.1', 'v0.3.2')).toBe(true);
+      expect(isCompatible('^0.0.1', '0.0.2')).toBe(true);
+      expect(isCompatible('0.0.1', '0.0.2')).toBe(true);
+      // We're committed to letting clients talk to 1 major behind
+      expect(isCompatible('0.4.1', '0.3.2')).toBe(true);
+    });
+
+    it('should recognize incompatible versions', () => {
+      expect(isCompatible('0.5.1', '0.3.2')).toBe(false);
+      expect(isCompatible('0.3.2', '0.4.1')).toBe(false);
+      expect(isCompatible('1.0.0', '2.0.0')).toBe(false);
+      expect(isCompatible('0.1.1', '1.0.2')).toBe(false);
+      expect(isCompatible('2.1.1-alpha.1', '1.0.2')).toBe(false);
+    });
+
+    it('should return false on invalid versions', () => {
+      expect(isCompatible('a.b.c', 'a.b.c')).toBe(false);
+      expect(isCompatible('0.1', '0.1')).toBe(false);
+      expect(isCompatible('vtwo', 'vtwo')).toBe(false);
     });
   });
 });

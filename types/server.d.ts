@@ -20,6 +20,8 @@ declare global {
         name: string;
         externalUrl: string;
         token: string;
+        baseBranch: string;
+        adminToken: string;
         slug: string;
         createdAt?: string;
         updatedAt?: string;
@@ -55,14 +57,18 @@ declare global {
       }
 
       export type StatisticName =
-        | 'audit_interactive_average'
-        | 'audit_first-contentful-paint_average'
-        | 'audit_speed-index_average'
-        | 'category_performance_average'
-        | 'category_pwa_average'
-        | 'category_seo_average'
-        | 'category_accessibility_average'
-        | 'category_best-practices_average'
+        | 'meta_lighthouse_version'
+        | 'audit_interactive_median'
+        | 'audit_first-contentful-paint_median'
+        | 'audit_speed-index_median'
+        | 'audit_largest-contentful-paint_median'
+        | 'audit_total-blocking-time_median'
+        | 'audit_max-potential-fid_median'
+        | 'category_performance_median'
+        | 'category_pwa_median'
+        | 'category_seo_median'
+        | 'category_accessibility_median'
+        | 'category_best-practices_median'
         | 'category_performance_min'
         | 'category_pwa_min'
         | 'category_seo_min'
@@ -142,6 +148,15 @@ declare global {
 
       export type StorageMethod = StorageMethod_;
 
+      export interface PsiCollectEntry {
+        urls: string[];
+        schedule: string;
+        numberOfRuns?: number;
+        projectSlug: string;
+        label?: string;
+        branch?: string;
+      }
+
       export interface StorageOptions {
         storageMethod: 'sql' | 'spanner';
         sqlDialect: 'sqlite' | 'mysql' | 'postgres';
@@ -156,12 +171,22 @@ declare global {
         sqlConnectionSsl?: string;
         sqlConnectionUrl?: string;
         sqlDangerouslyResetDatabase?: boolean;
+        sequelizeOptions?: import('sequelize').Options;
       }
 
       export interface Options {
         logLevel: 'silent' | 'verbose';
         port: number;
         storage: StorageOptions;
+        psiCollectCron?: {
+          psiApiKey: string;
+          psiApiEndpoint?: string;
+          sites: Array<PsiCollectEntry>;
+        };
+        basicAuth?: {
+          username?: string;
+          password?: string;
+        };
       }
     }
   }

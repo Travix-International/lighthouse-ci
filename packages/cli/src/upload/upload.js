@@ -5,6 +5,8 @@
  */
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const URL = require('url').URL;
 const fetch = require('isomorphic-fetch');
 const _ = require('@lhci/utils/src/lodash.js');
@@ -25,7 +27,7 @@ const {
   getCommitMessage,
   getAuthor,
   getAvatarUrl,
-  getAncestorHashForMaster,
+  getAncestorHashForBase,
   getAncestorHashForBranch,
   getGitHubRepoSlug,
 } = require('@lhci/utils/src/build-context.js');
@@ -35,6 +37,7 @@ const print = message => {
   process.stdout.write(message);
 };
 
+const DEFAULT_GITHUB_API_HOST = 'https://api.github.com';
 const DIFF_VIEWER_URL = 'https://googlechrome.github.io/lighthouse-ci/viewer/';
 const TEMPORARY_PUBLIC_STORAGE_URL =
   'https://us-central1-lighthouse-infrastructure.cloudfunctions.net/saveHtmlReport';
@@ -53,25 +56,49 @@ function buildCommand(yargs) {
     target: {
       type: 'string',
       default: 'lhci',
-      choices: ['lhci', 'temporary-public-storage'],
+      choices: ['lhci', 'temporary-public-storage', 'filesystem'],
       description:
-        'The type of target to upload the data to. If set to anything other than "lhci", ' +
-        'some of the options will not apply.',
+        'The type of target to upload the data to. Some options will only apply to particular targets',
     },
     token: {
       type: 'string',
       description: '[lhci only] The Lighthouse CI server token for the project.',
     },
+    ignoreDuplicateBuildFailure: {
+      type: 'boolean',
+      description:
+        '[lhci only] Whether to ignore failures (still exit with code 0) caused by uploads of a duplicate build.',
+    },
     githubToken: {
       type: 'string',
       description: 'The GitHub token to use to apply a status check.',
+    },
+    githubApiHost: {
+      type: 'string',
+      default: DEFAULT_GITHUB_API_HOST,
+      description:
+        'The GitHub host to use for the status check API request. Modify this when using on a GitHub Enterprise server.',
     },
     githubAppToken: {
       type: 'string',
       description: 'The LHCI GitHub App token to use to apply a status check.',
     },
+    githubStatusContextSuffix: {
+      type: 'string',
+      description: 'The suffix of the GitHub status check context label.',
+    },
     extraHeaders: {
       description: '[lhci only] Extra headers to use when making API requests to the LHCI server.',
+    },
+    'basicAuth.username': {
+      type: 'string',
+      description:
+        '[lhci only] The username to use on a server protected with HTTP Basic Authentication.',
+    },
+    'basicAuth.password': {
+      type: 'string',
+      description:
+        '[lhci only] The password to use on a server protected with HTTP Basic Authentication.',
     },
     serverBaseUrl: {
       description: '[lhci only] The base URL of the LHCI server where results will be saved.',
@@ -92,14 +119,33 @@ function buildCommand(yargs) {
         's/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/UUID/ig', // replace UUIDs
       ],
     },
+    outputDir: {
+      type: 'string',
+      description: '[filesystem only] The directory in which to dump Lighthouse results.',
+    },
+    reportFilenamePattern: {
+      type: 'string',
+      description: '[filesystem only] The pattern to use for naming Lighthouse reports.',
+      default: '%%HOSTNAME%%-%%PATHNAME%%-%%DATETIME%%.report.%%EXTENSION%%',
+    },
   });
 }
 
 /**
- * @param {{slug: string, hash: string, state: 'failure'|'success', targetUrl: string, description: string, context: string, githubToken?: string, githubAppToken?: string}} options
+ * @param {{slug: string, hash: string, state: 'failure'|'success', targetUrl: string, description: string, context: string, githubToken?: string, githubAppToken?: string, githubApiHost?: string}} options
  */
 async function postStatusToGitHub(options) {
-  const {slug, hash, state, targetUrl, context, description, githubToken, githubAppToken} = options;
+  const {
+    slug,
+    hash,
+    state,
+    targetUrl,
+    context,
+    description,
+    githubToken,
+    githubAppToken,
+    githubApiHost = DEFAULT_GITHUB_API_HOST,
+  } = options;
 
   let response;
   if (githubAppToken) {
@@ -111,7 +157,7 @@ async function postStatusToGitHub(options) {
       body: JSON.stringify(payload),
     });
   } else {
-    const url = `https://api.github.com/repos/${slug}/statuses/${hash}`;
+    const url = `${githubApiHost}/repos/${slug}/statuses/${hash}`;
     const payload = {state, context, description, target_url: targetUrl};
     response = await fetch(url, {
       method: 'POST',
@@ -142,16 +188,45 @@ function getUrlLabelForGithub(rawUrl, options) {
 }
 
 /**
+ *
+ * @param {string} rawUrl
+ * @param {LHCI.UploadCommand.Options} options
+ */
+function getUrlForLhciTarget(rawUrl, options) {
+  let url = replaceUrlPatterns(rawUrl, options.urlReplacementPatterns);
+  if (url.length > 256) {
+    process.stderr.write('WARNING: audited URL exceeds character limits, truncation possible.');
+    url = url.slice(0, 256);
+  }
+
+  return url;
+}
+
+/**
+ * @param {string} urlLabel
+ * @param {LHCI.UploadCommand.Options} options
+ */
+function getGitHubContext(urlLabel, options) {
+  const prefix = options.githubStatusContextSuffix
+    ? `lhci${options.githubStatusContextSuffix}`
+    : 'lhci';
+  return `${prefix}/url${urlLabel}`;
+}
+
+/**
  * @param {LHCI.UploadCommand.Options} options
  * @param {Map<string, string>} targetUrlMap
  * @return {Promise<void>}
  */
 async function runGithubStatusCheck(options, targetUrlMap) {
+  const {githubToken, githubAppToken, githubApiHost} = options;
   const hash = getCurrentHash();
-  const slug = getGitHubRepoSlug();
-  const {githubToken, githubAppToken} = options;
+  const slug = getGitHubRepoSlug(githubApiHost);
 
-  if (!githubToken && !githubAppToken) return print('No GitHub token set, skipping.\n');
+  if (!githubToken && !githubAppToken) {
+    return print('No GitHub token set, skipping GitHub status check.\n');
+  }
+
   print('GitHub token found, attempting to set status...\n');
   if (!slug) return print(`No GitHub remote found, skipping.\n`);
   if (!slug.includes('/')) return print(`Invalid repo slug "${slug}", skipping.\n`);
@@ -169,7 +244,7 @@ async function runGithubStatusCheck(options, targetUrlMap) {
       const failedResults = group.filter(result => result.level === 'error');
       const warnResults = group.filter(result => result.level === 'warn');
       const state = failedResults.length ? 'failure' : 'success';
-      const context = `lhci/url${urlLabel}`;
+      const context = getGitHubContext(urlLabel, options);
       const warningsLabel = warnResults.length ? ` with ${warnResults.length} warning(s)` : '';
       const description = failedResults.length
         ? `Failed ${failedResults.length} assertion(s)`
@@ -185,6 +260,7 @@ async function runGithubStatusCheck(options, targetUrlMap) {
         targetUrl,
         githubToken,
         githubAppToken,
+        githubApiHost,
       });
     }
   } else {
@@ -200,7 +276,7 @@ async function runGithubStatusCheck(options, targetUrlMap) {
       const rawUrl = lhr.finalUrl;
       const urlLabel = getUrlLabelForGithub(rawUrl, options);
       const state = 'success';
-      const context = `lhci/url${urlLabel}`;
+      const context = getGitHubContext(urlLabel, options);
       const categoriesDescription = Object.values(lhr.categories)
         .map(category => `${category.title}: ${Math.round(category.score * 100)}`)
         .join(', ');
@@ -216,6 +292,7 @@ async function runGithubStatusCheck(options, targetUrlMap) {
         targetUrl,
         githubToken,
         githubAppToken,
+        githubApiHost,
       });
     }
   }
@@ -295,17 +372,19 @@ function buildTemporaryStorageLink(compareUrl, urlAudited, previousUrlMap) {
 async function runLHCITarget(options) {
   if (!options.token) throw new Error('Must provide token for LHCI target');
 
-  const api = new ApiClient({rootURL: options.serverBaseUrl, extraHeaders: options.extraHeaders});
+  const api = new ApiClient({...options, rootURL: options.serverBaseUrl});
 
+  api.setBuildToken(options.token);
   const project = await api.findProjectByToken(options.token);
   if (!project) {
     throw new Error('Could not find active project with provided token');
   }
 
+  const baseBranch = project.baseBranch || 'master';
   const hash = getCurrentHash();
   const branch = getCurrentBranch();
   const ancestorHash =
-    branch === 'master' ? getAncestorHashForMaster() : getAncestorHashForBranch();
+    branch === baseBranch ? getAncestorHashForBase() : getAncestorHashForBranch('HEAD', baseBranch);
 
   const build = await api.createBuild({
     projectId: project.id,
@@ -326,7 +405,6 @@ async function runLHCITarget(options) {
   print(`Saving CI build (${build.id})\n`);
 
   const lhrs = loadSavedLHRs();
-  const urlReplacementPatterns = options.urlReplacementPatterns;
   const targetUrlMap = new Map();
 
   const buildViewUrl = new URL(
@@ -336,7 +414,7 @@ async function runLHCITarget(options) {
 
   for (const lhr of lhrs) {
     const parsedLHR = JSON.parse(lhr);
-    const url = replaceUrlPatterns(parsedLHR.finalUrl, urlReplacementPatterns);
+    const url = getUrlForLhciTarget(parsedLHR.finalUrl, options);
     const run = await api.createRun({
       projectId: project.id,
       buildId: build.id,
@@ -404,6 +482,84 @@ async function runTemporaryPublicStorageTarget(options) {
 }
 
 /**
+ *
+ * @param {string} pattern
+ * @param {Record<string, string>} context
+ */
+function getFileOutputPath(pattern, context) {
+  let filename = pattern;
+  const matches = pattern.match(/%%([a-z]+)%%/gi) || [];
+  for (const match of matches) {
+    const name = match.slice(2, -2).toLowerCase();
+    const value = context[name] || 'unknown';
+    const sanitizedValue = value.replace(/[^a-z0-9]+/gi, '_');
+    filename = filename.replace(match, sanitizedValue);
+  }
+
+  return filename;
+}
+
+/**
+ * @param {LHCI.UploadCommand.Options} options
+ * @return {Promise<void>}
+ */
+async function runFilesystemTarget(options) {
+  /** @type {Array<LH.Result>} */
+  const lhrs = loadSavedLHRs().map(lhr => JSON.parse(lhr));
+  /** @type {Array<Array<[LH.Result, LH.Result]>>} */
+  const lhrsByUrl = _.groupBy(lhrs, lhr => lhr.finalUrl).map(lhrs => lhrs.map(lhr => [lhr, lhr]));
+  const representativeLhrs = computeRepresentativeRuns(lhrsByUrl);
+
+  const targetDir = path.resolve(process.cwd(), options.outputDir || '');
+  if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, {recursive: true});
+
+  print(`Dumping ${lhrs.length} reports to disk at ${targetDir}...\n`);
+  /** @type {Array<LHCI.UploadCommand.ManifestEntry>} */
+  const manifest = [];
+  // Process the median LHRs last so duplicate filenames will be overwritten by the median run
+  for (const lhr of _.sortBy(lhrs, lhr => (representativeLhrs.includes(lhr) ? 10 : 1))) {
+    const url = new URL(lhr.finalUrl);
+    const fetchTimeDate = new Date(new Date(lhr.fetchTime).getTime() || Date.now());
+    const context = {
+      hostname: url.hostname,
+      pathname: url.pathname,
+      date: fetchTimeDate.toISOString().replace(/T.*/, ''),
+      datetime: fetchTimeDate
+        .toISOString()
+        .replace(/\.\d{3}Z/, '')
+        .replace('T', ' '),
+    };
+
+    const filePattern = options.reportFilenamePattern;
+    const htmlPath = getFileOutputPath(filePattern, {...context, extension: 'html'});
+    const jsonPath = getFileOutputPath(filePattern, {...context, extension: 'json'});
+
+    /** @type {LHCI.UploadCommand.ManifestEntry} */
+    const entry = {
+      url: lhr.finalUrl,
+      isRepresentativeRun: representativeLhrs.includes(lhr),
+      htmlPath: path.join(targetDir, htmlPath),
+      jsonPath: path.join(targetDir, jsonPath),
+      summary: Object.keys(lhr.categories).reduce(
+        (summary, key) => {
+          summary[key] = lhr.categories[key].score;
+          return summary;
+        },
+        /** @type {Record<string, number>} */ ({})
+      ),
+    };
+
+    fs.writeFileSync(entry.htmlPath, getHTMLReportForLHR(lhr));
+    fs.writeFileSync(entry.jsonPath, JSON.stringify(lhr));
+    manifest.push(entry);
+  }
+
+  const manifestPath = path.join(targetDir, 'manifest.json');
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  print('Done writing reports to disk.\n');
+}
+
+/**
  * @param {LHCI.UploadCommand.Options} options
  * @return {Promise<void>}
  */
@@ -412,9 +568,20 @@ async function runCommand(options) {
 
   switch (options.target) {
     case 'lhci':
-      return runLHCITarget(options);
+      try {
+        return await runLHCITarget(options);
+      } catch (err) {
+        if (options.ignoreDuplicateBuildFailure && /Build already exists/.test(err.message)) {
+          print('Build already exists but ignore requested via options, skipping upload...');
+          return;
+        }
+
+        throw err;
+      }
     case 'temporary-public-storage':
       return runTemporaryPublicStorageTarget(options);
+    case 'filesystem':
+      return runFilesystemTarget(options);
     default:
       throw new Error(`Unrecognized target "${options.target}"`);
   }

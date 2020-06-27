@@ -24,7 +24,7 @@ fi
 
 npm run deploy
 
-npm install -g @lhci/cli@0.3.x
+npm install -g @lhci/cli@0.4.x
 lhci healthcheck --fatal
 lhci collect --url=http://localhost:9000/index.html
 lhci assert --preset="lighthouse:recommended"
@@ -121,7 +121,7 @@ Now that we have our environment ready, time to run Lighthouse CI. The `collect`
 
 # Install Lighthouse CI
 # If you're already using node to manage your project, add it to your package.json `devDependencies` instead to skip this step.
-npm install -g @lhci/cli@0.3.x
+npm install -g @lhci/cli@0.4.x
 
 # Run a healthcheck to make sure everything looks good before we run collection.
 lhci healthcheck --fatal
@@ -140,7 +140,7 @@ exit $EXIT_CODE
 
 ### Configuration
 
-The setup so far will automatically assert the Lighthouse team's recommended set of audits, but your project might have a bit of work to go before hitting straight 100s! Lucky for you the assertions are completely configurable! Read more about what's possible with [the assertions format](./assertions.md).
+The setup so far will automatically assert the Lighthouse team's recommended set of audits, but your project might have a bit of work to go before hitting straight 100s! Lucky for you the assertions are completely configurable! Read more about what's possible with [the assertions format](./configuration.md#assert).
 
 **lighthouserc.json**
 

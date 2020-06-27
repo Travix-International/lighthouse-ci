@@ -6,11 +6,13 @@
 'use strict';
 
 const path = require('path');
-const ChromeLauncher = require('chrome-launcher').Launcher;
+const yargsParser = require('yargs-parser');
+const {determineChromePath} = require('../utils.js');
 const FallbackServer = require('./fallback-server.js');
-const LighthouseRunner = require('./lighthouse-runner.js');
+const PsiRunner = require('@lhci/utils/src/psi-runner.js');
+const NodeRunner = require('./node-runner.js');
 const PuppeteerManager = require('./puppeteer-manager.js');
-const {saveLHR, clearSavedLHRs} = require('@lhci/utils/src/saved-reports.js');
+const {saveLHR, clearSavedReportsAndLHRs} = require('@lhci/utils/src/saved-reports.js');
 const {
   runCommandAndWaitForPattern,
   killProcessTree,
@@ -20,13 +22,25 @@ const {
  * @param {import('yargs').Argv} yargs
  */
 function buildCommand(yargs) {
+  /** @type {any} */
+  const naiveOptions = yargsParser(process.argv);
+
   return yargs.options({
-    method: {type: 'string', choices: ['node'], default: 'node'},
+    method: {
+      type: 'string',
+      description:
+        'The method of running Lighthouse to use. PSI will send the URL to a Google API and only be able to access URLs publicly available on the internet.',
+      choices: ['node', 'psi'],
+      default: 'node',
+    },
     headful: {type: 'boolean', description: 'Run with a headful Chrome'},
     additive: {type: 'boolean', description: 'Skips clearing of previous collect data'},
     url: {
       description:
         'A URL to run Lighthouse on. Use this flag multiple times to evaluate multiple URLs.',
+    },
+    psiApiKey: {
+      description: '[psi only] The API key to use for PageSpeed Insights runner method.',
     },
     staticDistDir: {
       description: 'The build directory where your HTML files to run Lighthouse on are located.',
@@ -37,7 +51,7 @@ function buildCommand(yargs) {
     },
     chromePath: {
       description: 'The path to the Chrome or Chromium executable to use for collection.',
-      default: process.env.CHROME_PATH || ChromeLauncher.getInstallations()[0],
+      default: determineChromePath(naiveOptions),
     },
     puppeteerScript: {
       description:
@@ -54,6 +68,11 @@ function buildCommand(yargs) {
       type: 'string',
       default: 'listen|ready',
     },
+    startServerReadyTimeout: {
+      description: 'The number of milliseconds to wait for the server to start before continuing',
+      type: 'number',
+      default: 10000,
+    },
     settings: {description: 'The Lighthouse settings and flags to use when collecting'},
     numberOfRuns: {
       alias: 'n',
@@ -64,6 +83,12 @@ function buildCommand(yargs) {
   });
 }
 
+/** @param {LHCI.CollectCommand.Options} options @return {LHCI.CollectCommand.Runner} */
+function getRunner(options) {
+  if (options.method === 'psi') return new PsiRunner();
+  return new NodeRunner();
+}
+
 /**
  * @param {string} url
  * @param {LHCI.CollectCommand.Options} options
@@ -71,7 +96,7 @@ function buildCommand(yargs) {
  * @return {Promise<void>}
  */
 async function runOnUrl(url, options, context) {
-  const runner = new LighthouseRunner();
+  const runner = getRunner(options);
   process.stdout.write(`Running Lighthouse ${options.numberOfRuns} time(s) on ${url}\n`);
 
   const baseSettings = options.settings || {};
@@ -83,11 +108,16 @@ async function runOnUrl(url, options, context) {
     process.stdout.write(`Run #${i + 1}...`);
     try {
       const lhr = await runner.runUntilSuccess(url, {
-        headful: options.headful,
+        ...options,
         settings,
       });
       saveLHR(lhr);
       process.stdout.write('done.\n');
+
+      // PSI caches results for a minute. Ensure each run is unique by waiting 60s between runs.
+      if (options.method === 'psi' && i < options.numberOfRuns - 1) {
+        await new Promise(r => setTimeout(r, PsiRunner.CACHEBUST_TIMEOUT));
+      }
     } catch (err) {
       process.stdout.write('failed!\n');
       throw err;
@@ -102,19 +132,21 @@ async function runOnUrl(url, options, context) {
 async function startServerAndDetermineUrls(options) {
   const urlsAsArray = Array.isArray(options.url) ? options.url : options.url ? [options.url] : [];
   if (!options.staticDistDir) {
+    if (!urlsAsArray.length) throw new Error(`No URLs provided to collect`);
+
     let close = async () => undefined;
     if (options.startServerCommand) {
       const regexPattern = new RegExp(options.startServerReadyPattern, 'i');
       const {child, patternMatch, stdout, stderr} = await runCommandAndWaitForPattern(
         options.startServerCommand,
         regexPattern,
-        {timeout: 10000}
+        {timeout: options.startServerReadyTimeout}
       );
       process.stdout.write(`Started a web server with "${options.startServerCommand}"...\n`);
       close = () => killProcessTree(child.pid);
 
       if (!patternMatch) {
-        // This is only for readability.
+        // This `message` variable is only for readability.
         const message = `Ensure the server prints a pattern that matches ${regexPattern} when it is ready.\n`;
         process.stdout.write(`WARNING: Timed out waiting for the server to start listening.\n`);
         process.stdout.write(`         ${message}`);
@@ -135,7 +167,11 @@ async function startServerAndDetermineUrls(options) {
 
   const urls = urlsAsArray;
   if (!urls.length) {
-    urls.push(...server.getAvailableUrls());
+    urls.push(...server.getAvailableUrls().slice(0, 5));
+  }
+
+  if (!urls.length) {
+    throw new Error(`No URLs provided to collect and no HTML files found in staticDistDir`);
   }
 
   urls.forEach((rawUrl, i) => {
@@ -168,8 +204,7 @@ function checkIgnoredChromeFlagsOption(options) {
  * @return {Promise<void>}
  */
 async function runCommand(options) {
-  if (options.method !== 'node') throw new Error(`Method "${options.method}" not yet supported`);
-  if (!options.additive) clearSavedLHRs();
+  if (!options.additive) clearSavedReportsAndLHRs();
 
   checkIgnoredChromeFlagsOption(options);
 

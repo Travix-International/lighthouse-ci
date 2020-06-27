@@ -16,6 +16,7 @@ function runTests(state) {
   let client;
   let projectA;
   let projectB;
+  let projectC;
   let buildA;
   let buildB;
   let buildC;
@@ -27,7 +28,7 @@ function runTests(state) {
 
   beforeAll(() => {
     rootURL = `http://localhost:${state.port}`;
-    client = new ApiClient({rootURL});
+    client = new ApiClient({rootURL, extraHeaders: state.extraHeaders});
   });
 
   describe('/version', () => {
@@ -38,45 +39,104 @@ function runTests(state) {
   });
 
   describe('/v1/projects', () => {
-    let projectAToken;
     it('should create a project', async () => {
       const payload = {name: 'Lighthouse', externalUrl: 'https://github.com/lighthouse'};
       projectA = await client.createProject(payload);
-      projectAToken = projectA.token;
       expect(projectA).toHaveProperty('id');
       expect(projectA).toHaveProperty('token');
+      expect(projectA).toHaveProperty('adminToken');
+      expect(projectA).toHaveProperty('baseBranch', 'master');
       expect(projectA).toHaveProperty('slug', 'lighthouse');
       expect(projectA).toMatchObject(payload);
-      expect(projectAToken).toMatch(/^\w{8}-\w{4}/);
+      expect(projectA.token).toMatch(/^\w{8}-\w{4}/);
+      expect(projectA.adminToken).toMatch(/^\w{40}$/);
     });
 
     it('should create a 2nd project', async () => {
-      const payload = {name: 'Lighthouse 2', externalUrl: 'https://gitlab.com/lighthouse'};
+      const payload = {
+        name: 'Lighthouse 2',
+        externalUrl: 'https://gitlab.com/lighthouse',
+        baseBranch: '',
+      };
       projectB = await client.createProject(payload);
       expect(projectB.id).not.toEqual(projectA.id);
       expect(projectB).toHaveProperty('id');
       expect(projectB).toHaveProperty('slug', 'lighthouse-2');
-      expect(projectB).toMatchObject(payload);
+      expect(projectB).toMatchObject({...payload, baseBranch: 'master'});
+    });
+
+    it('should create a 3rd project', async () => {
+      const payload = {
+        name: 'Lighthouse 3',
+        externalUrl: 'https://gitlab.com/lighthouse',
+        baseBranch: 'dev',
+      };
+      projectC = await client.createProject(payload);
+      expect(projectC.id).not.toEqual(projectA.id);
+      expect(projectC).toHaveProperty('id');
+      expect(projectC).toHaveProperty('slug', 'lighthouse-3');
+      expect(projectC).toMatchObject(payload);
     });
 
     it('should list projects', async () => {
       const projects = await client.getProjects();
-      expect(projects).toEqual([{...projectB, token: ''}, {...projectA, token: ''}]);
+      expect(projects).toEqual([
+        {...projectC, adminToken: '', token: ''},
+        {...projectB, adminToken: '', token: ''},
+        {...projectA, adminToken: '', token: ''},
+      ]);
     });
 
     it('should fetch a project by a token', async () => {
-      const project = await client.findProjectByToken(projectAToken);
-      expect(project).toEqual(projectA);
+      const project = await client.findProjectByToken(projectA.token);
+      expect(project).toEqual({...projectA, adminToken: ''});
     });
 
     it('should fetch a project by ID', async () => {
       const project = await client.findProjectById(projectA.id);
-      expect(project).toEqual({...projectA, token: ''});
+      expect(project).toEqual({...projectA, adminToken: '', token: ''});
     });
 
     it('should fetch a project by slug', async () => {
       const project = await client.findProjectBySlug('lighthouse');
-      expect(project).toEqual({...projectA, token: ''});
+      expect(project).toEqual({...projectA, adminToken: '', token: ''});
+    });
+
+    it('should update a project', async () => {
+      client.setAdminToken(projectC.adminToken);
+      await client.updateProject({
+        id: projectC.id,
+        name: 'Updated',
+        externalUrl: 'https://updated.example.com',
+        baseBranch: 'updated-dev',
+        adminToken: 'haxx',
+        slug: 'ignored',
+      });
+
+      const project = await client.findProjectById(projectC.id);
+      expect(project).toEqual({
+        ...projectC,
+        updatedAt: project.updatedAt,
+        name: 'Updated',
+        externalUrl: 'https://updated.example.com',
+        baseBranch: 'updated-dev',
+        adminToken: '',
+        token: '',
+      });
+
+      expect(new Date(project.updatedAt).getTime()).toBeGreaterThan(
+        new Date(projectC.updatedAt).getTime()
+      );
+
+      await client.updateProject({
+        id: projectC.id,
+        name: 'Updated Back',
+        adminToken: 'haxx',
+      });
+
+      expect(await client.findProjectById(projectC.id)).toHaveProperty('name', 'Updated Back');
+      client.setAdminToken('haxx');
+      await expect(client.updateProject(projectC)).rejects.toMatchObject({status: 403});
     });
 
     describe('slugs', () => {
@@ -87,7 +147,11 @@ function runTests(state) {
           const project = await client.createProject(payload);
           expect(project).toHaveProperty('slug');
           expect(slugs).not.toContain(project.slug);
-          expect(await client.findProjectBySlug(project.slug)).toEqual({...project, token: ''});
+          expect(await client.findProjectBySlug(project.slug)).toEqual({
+            ...project,
+            adminToken: '',
+            token: '',
+          });
           slugs.add(project.slug);
         }
       });
@@ -116,6 +180,7 @@ function runTests(state) {
         ancestorCommittedAt: new Date().toISOString(),
       };
 
+      client.setBuildToken(projectA.token);
       buildA = await client.createBuild(payload);
       expect(buildA).toHaveProperty('id');
       expect(buildA.projectId).toEqual(projectA.id);
@@ -138,6 +203,7 @@ function runTests(state) {
         ancestorCommittedAt: new Date().toISOString(),
       };
 
+      client.setBuildToken(projectA.token);
       buildB = await client.createBuild(payload);
       expect(buildB).toHaveProperty('id');
       expect(buildB.projectId).toEqual(projectA.id);
@@ -160,6 +226,7 @@ function runTests(state) {
         ancestorCommittedAt: new Date().toISOString(),
       };
 
+      client.setBuildToken(projectA.token);
       buildC = await client.createBuild(payload);
       expect(buildC).toHaveProperty('id');
       expect(buildC.projectId).toEqual(projectA.id);
@@ -182,6 +249,7 @@ function runTests(state) {
         ancestorCommittedAt: new Date().toISOString(),
       };
 
+      client.setBuildToken(projectB.token);
       buildD = await client.createBuild(payload);
       expect(buildD).toHaveProperty('id');
       expect(buildD.projectId).toEqual(projectB.id);
@@ -251,6 +319,7 @@ function runTests(state) {
       };
 
       while (!findAmbiguity()) {
+        client.setBuildToken(dummyProject.token);
         builds.push(
           await client.createBuild({
             ...buildA,
@@ -268,6 +337,47 @@ function runTests(state) {
       );
     });
 
+    it('should handle partial id ambiguity when there is one 0 and one 00 build', async () => {
+      const dummyProject = await client.createProject({name: 'dummy', externalUrl: ''});
+      const builds = [];
+      const findAmbiguity = () => {
+        for (const a of builds) {
+          for (const b of builds) {
+            if (a === b) continue;
+
+            if (a.id.startsWith('0') && !a.id.startsWith('00') && b.id.startsWith('00')) {
+              return true;
+            }
+          }
+        }
+      };
+
+      while (!findAmbiguity()) {
+        client.setBuildToken(dummyProject.token);
+        builds.push(
+          await client.createBuild({
+            ...buildA,
+            hash: Math.random().toString(),
+            projectId: dummyProject.id,
+          })
+        );
+      }
+
+      const buildsWithAmbiguousPrefix = builds.filter(b => b.id.startsWith('0'));
+      const doubleZeroBuild = buildsWithAmbiguousPrefix.find(b => b.id.startsWith('00'));
+      const singleZeroBuild = buildsWithAmbiguousPrefix.find(b => !b.id.startsWith('00'));
+
+      const ambiguousQueryResult = await client.findBuildById(dummyProject.id, '0');
+      const doubleZeroResult = await client.findBuildById(dummyProject.id, doubleZeroBuild.id);
+      const singleZeroResult = await client.findBuildById(dummyProject.id, singleZeroBuild.id);
+
+      expect([ambiguousQueryResult, doubleZeroResult, singleZeroResult]).toEqual([
+        undefined,
+        doubleZeroBuild,
+        singleZeroBuild,
+      ]);
+    }, 600e3); // this can take a really long time in CI, 00 = 1/256 chance, 0 = 1/16 chance
+
     it('should handle UUIDs that start with 0', async () => {
       const dummyProject = await client.createProject({name: 'dummy', externalUrl: ''});
       const builds = [];
@@ -276,6 +386,7 @@ function runTests(state) {
       };
 
       while (!findBuildWith0()) {
+        client.setBuildToken(dummyProject.token);
         builds.push(
           await client.createBuild({
             ...buildA,
@@ -325,6 +436,7 @@ function runTests(state) {
 
     it('should find a build with complicated ancestor', async () => {
       const project = await client.createProject(projectA);
+      client.setBuildToken(project.token);
       const buildWithoutAncestor = await client.createBuild({
         ...buildC,
         hash: Math.random().toString(),
@@ -387,6 +499,7 @@ function runTests(state) {
 
     it('should find a build with an ancestor hash duplicate of branch hash', async () => {
       const project = await client.createProject(projectA);
+      client.setBuildToken(project.token);
       const branchBuild = await client.createBuild({
         ...buildA,
         hash: 'hash-1',
@@ -419,6 +532,53 @@ function runTests(state) {
       expect(ancestor).toEqual(undefined);
       ancestor = await client.findAncestorBuildById(project.id, newBranchBuild.id);
       expect(ancestor).toEqual(masterBuild);
+    });
+
+    it('should find a build with an ancestor hash of non-master base', async () => {
+      const project = await client.createProject({...projectA, baseBranch: 'dev'});
+      client.setBuildToken(project.token);
+      const branchBuild = await client.createBuild({
+        ...buildA,
+        hash: 'hash-1',
+        commitMessage: 'Merge commit - branch PR build',
+        projectId: project.id,
+        branch: 'feature_branch',
+        runAt: new Date('2019-09-02').toISOString(),
+      });
+      const baseBuild = await client.createBuild({
+        ...buildA,
+        hash: 'hash-1',
+        commitMessage: 'Merge commit - base build',
+        projectId: project.id,
+        branch: 'dev',
+        runAt: new Date('2019-09-01').toISOString(),
+      });
+      const masterBuild = await client.createBuild({
+        ...buildA,
+        hash: 'hash-1',
+        commitMessage: 'Merge commit - master build',
+        projectId: project.id,
+        branch: 'master',
+        runAt: new Date('2019-09-01').toISOString(),
+      });
+      const newBranchBuild = await client.createBuild({
+        ...buildA,
+        hash: 'hash-2',
+        ancestorHash: 'hash-1',
+        commitMessage: 'Branch commit',
+        projectId: project.id,
+        branch: 'feature_branch_2',
+        runAt: new Date('2019-09-03').toISOString(),
+      });
+
+      let ancestor = await client.findAncestorBuildById(project.id, branchBuild.id);
+      expect(ancestor).toEqual(baseBuild);
+      ancestor = await client.findAncestorBuildById(project.id, baseBuild.id);
+      expect(ancestor).toEqual(undefined);
+      ancestor = await client.findAncestorBuildById(project.id, masterBuild.id);
+      expect(ancestor).toEqual(baseBuild);
+      ancestor = await client.findAncestorBuildById(project.id, newBranchBuild.id);
+      expect(ancestor).toEqual(baseBuild);
     });
   });
 
@@ -470,6 +630,7 @@ function runTests(state) {
         lhr: JSON.stringify(lhr),
       };
 
+      client.setBuildToken(projectA.token);
       runA = await client.createRun(payload);
       expect(runA).toHaveProperty('id');
       expect(runA.projectId).toEqual(projectA.id);
@@ -490,6 +651,7 @@ function runTests(state) {
         }),
       };
 
+      client.setBuildToken(projectA.token);
       runB = await client.createRun(payload);
       expect(runB).toHaveProperty('id');
       expect(runB.projectId).toEqual(projectA.id);
@@ -510,6 +672,7 @@ function runTests(state) {
         }),
       };
 
+      client.setBuildToken(projectA.token);
       runC = await client.createRun(payload);
       expect(runC).toHaveProperty('id');
       expect(runC.projectId).toEqual(projectA.id);
@@ -538,6 +701,7 @@ function runTests(state) {
         }),
       };
 
+      client.setBuildToken(projectA.token);
       runD = await client.createRun(payload);
       expect(runD).toHaveProperty('id');
       expect(runD.projectId).toEqual(projectA.id);
@@ -575,6 +739,7 @@ function runTests(state) {
     });
 
     it('should seal the build', async () => {
+      client.setBuildToken(projectA.token);
       await client.sealBuild(projectA.id, buildA.id);
 
       // Build should now be sealed
@@ -612,24 +777,24 @@ function runTests(state) {
       const urlRootStats = statistics.filter(stat => stat.url === 'https://example.com:PORT/');
       const urlBlogStats = statistics.filter(stat => stat.url === 'https://example.com:PORT/blog');
 
-      expect(urlRootStats).toHaveLength(60);
+      expect(urlRootStats.length).toBeGreaterThan(60);
       expect(urlBlogStats).toHaveLength(urlRootStats.length);
 
-      const fcpAverage = urlRootStats.find(s => s.name === 'audit_first-contentful-paint_average');
-      const a11yAverage = urlRootStats.find(s => s.name === 'category_accessibility_average');
+      const fcpMedian = urlRootStats.find(s => s.name === 'audit_first-contentful-paint_median');
+      const a11yMedian = urlRootStats.find(s => s.name === 'category_accessibility_median');
       const a11yMin = urlRootStats.find(s => s.name === 'category_accessibility_min');
-      const perfAverage = urlRootStats.find(s => s.name === 'category_performance_average');
+      const perfMedian = urlRootStats.find(s => s.name === 'category_performance_median');
       const perfMin = urlRootStats.find(s => s.name === 'category_performance_min');
       const perfMax = urlRootStats.find(s => s.name === 'category_performance_max');
 
-      expect(fcpAverage).toMatchObject({
+      expect(fcpMedian).toMatchObject({
         url: 'https://example.com:PORT/',
-        name: 'audit_first-contentful-paint_average',
+        name: 'audit_first-contentful-paint_median',
         value: 2000,
       });
-      expect(a11yAverage).toMatchObject({
+      expect(a11yMedian).toMatchObject({
         url: 'https://example.com:PORT/',
-        name: 'category_accessibility_average',
+        name: 'category_accessibility_median',
         value: -1,
       });
       expect(a11yMin).toMatchObject({
@@ -637,9 +802,9 @@ function runTests(state) {
         name: 'category_accessibility_min',
         value: -1,
       });
-      expect(perfAverage).toMatchObject({
+      expect(perfMedian).toMatchObject({
         url: 'https://example.com:PORT/',
-        name: 'category_performance_average',
+        name: 'category_performance_median',
         value: 0.45,
       });
       expect(perfMin).toMatchObject({
@@ -728,13 +893,16 @@ function runTests(state) {
   });
 
   describe('error handling', () => {
+    // Defer the use of `state.extraHeaders` because they're initialized in a `beforeAll` block
+    const fetchOptions = () => ({headers: state.extraHeaders});
+
     it('should return 404 in the case of missing data by id', async () => {
-      const response = await fetch(`${rootURL}/v1/projects/missing`);
+      const response = await fetch(`${rootURL}/v1/projects/missing`, fetchOptions());
       expect(response.status).toEqual(404);
     });
 
     it('should return 404 in the case of missing data by slug', async () => {
-      const response = await fetch(`${rootURL}/v1/projects/slug:missing`);
+      const response = await fetch(`${rootURL}/v1/projects/slug:missing`, fetchOptions());
       expect(response.status).toEqual(404);
     });
 
@@ -755,6 +923,7 @@ function runTests(state) {
 
     it('should fail to create a sealed build', async () => {
       const payload = {...buildA, lifecycle: 'sealed', id: undefined};
+      client.setBuildToken(projectA.token);
       await expect(client.createBuild(payload)).rejects.toMatchObject({
         status: 422,
         body: '{"message":"Invalid lifecycle value"}',
@@ -763,6 +932,7 @@ function runTests(state) {
 
     it('should fail to create a build with same hash', async () => {
       const payload = {...buildA, id: undefined};
+      client.setBuildToken(projectA.token);
       await expect(client.createBuild(payload)).rejects.toMatchObject({
         status: 422,
         body:
@@ -770,7 +940,25 @@ function runTests(state) {
       });
     });
 
+    it('should fail to create a build without a build token', async () => {
+      const payload = {...buildA, hash: 'newhash', id: undefined};
+      client.setBuildToken(undefined);
+      await expect(client.createBuild(payload)).rejects.toMatchObject({
+        status: 403,
+        body: '{"message":"Invalid token"}',
+      });
+    });
+
+    it('should fail to create a run without a build token', async () => {
+      client.setBuildToken(undefined);
+      await expect(client.createRun({...runA, buildId: buildB.id})).rejects.toMatchObject({
+        status: 403,
+        body: '{"message":"Invalid token"}',
+      });
+    });
+
     it('should reject new runs after sealing', async () => {
+      client.setBuildToken(projectA.token);
       await expect(client.createRun(runA)).rejects.toMatchObject({
         status: 422,
         body: '{"message":"Invalid build"}',
@@ -778,6 +966,7 @@ function runTests(state) {
     });
 
     it('should reject runs with representative flag', async () => {
+      client.setBuildToken(projectA.token);
       await expect(
         client.createRun({...runA, buildId: buildB.id, representative: true})
       ).rejects.toMatchObject({
@@ -787,12 +976,85 @@ function runTests(state) {
     });
 
     it('should reject runs with invalid LHR', async () => {
+      client.setBuildToken(projectA.token);
       await expect(
         client.createRun({...runA, buildId: buildB.id, lhr: null})
       ).rejects.toMatchObject({
         status: 422,
         body: '{"message":"Invalid LHR"}',
       });
+    });
+
+    it('should fail to seal a build without a build token', async () => {
+      client.setBuildToken(undefined);
+      await expect(client.sealBuild(buildB.projectId, buildB.id)).rejects.toMatchObject({
+        status: 403,
+        body: '{"message":"Invalid token"}',
+      });
+    });
+
+    // TODO: make this consistent behavior with runs which returns []
+    it('should fail to create statistics on non-existent build', async () => {
+      await expect(client.getStatistics(projectA.id, 'MISSING')).rejects.toMatchObject({
+        status: 404,
+        body: '{"message":"No build with that ID"}',
+      });
+    });
+
+    it('should fail to take privileged actions without a token', async () => {
+      await expect(client.deleteBuild(projectA.id, buildA.id)).rejects.toMatchObject({
+        status: 403,
+        body: '{"message":"Invalid token"}',
+      });
+
+      expect(await client.findBuildById(projectA.id, buildA.id)).toBeDefined();
+    });
+
+    it('should fail to take privileged actions with an invalid token', async () => {
+      client.setAdminToken(projectB.adminToken);
+      await expect(client.deleteBuild(projectA.id, buildA.id)).rejects.toMatchObject({
+        status: 403,
+        body: '{"message":"Invalid token"}',
+      });
+
+      expect(await client.findBuildById(projectA.id, buildA.id)).toBeDefined();
+    });
+
+    it('should fail to take update actions with a token for another project', async () => {
+      client.setAdminToken(projectB.adminToken);
+      await expect(client.updateProject({...projectA, name: 'Haxxx'})).rejects.toMatchObject({
+        status: 403,
+        body: '{"message":"Invalid token"}',
+      });
+
+      expect(await client.findProjectById(projectA.id)).toHaveProperty('name', projectA.name);
+    });
+  });
+
+  describe('cleanup', () => {
+    it('should delete a build', async () => {
+      client.setAdminToken(projectA.adminToken);
+      await client.deleteBuild(buildA.projectId, buildA.id);
+
+      const build = await client.findBuildById(projectA.id, buildA.id);
+      expect(build).toEqual(undefined);
+
+      const runs = await client.getRuns(buildA.projectId, buildA.id);
+      expect(runs).toEqual([]);
+    });
+
+    it('should delete a project', async () => {
+      client.setAdminToken(projectA.adminToken);
+      await client.deleteProject(buildA.projectId);
+
+      const project = await client.findProjectById(projectA.id);
+      expect(project).toEqual(undefined);
+
+      const buildsA = await client.getBuilds(projectA.id);
+      expect(buildsA).toEqual([]);
+
+      const buildsB = await client.getBuilds(projectB.id);
+      expect(buildsB).toHaveLength(1);
     });
   });
 }

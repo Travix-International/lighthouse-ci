@@ -12,6 +12,7 @@ const {
   definitions: statisticDefinitions,
   VERSION: STATISTIC_VERSION,
 } = require('../statistic-definitions.js');
+const {E404} = require('../express-utils.js');
 
 class StorageMethod {
   /**
@@ -32,6 +33,15 @@ class StorageMethod {
    * @return {Promise<Array<LHCI.ServerCommand.Project>>}
    */
   async getProjects() {
+    throw new Error('Unimplemented');
+  }
+
+  /**
+   * @param {string} projectId
+   * @return {Promise<void>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async deleteProject(projectId) {
     throw new Error('Unimplemented');
   }
 
@@ -63,11 +73,20 @@ class StorageMethod {
   }
 
   /**
-   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'>} project
+   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'|'adminToken'>} project
    * @return {Promise<LHCI.ServerCommand.Project>}
    */
   // eslint-disable-next-line no-unused-vars
   async createProject(project) {
+    throw new Error('Unimplemented');
+  }
+
+  /**
+   * @param {Pick<LHCI.ServerCommand.Project, 'id'|'baseBranch'|'externalUrl'|'name'>} project
+   * @return {Promise<void>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async updateProject(project) {
     throw new Error('Unimplemented');
   }
 
@@ -132,6 +151,16 @@ class StorageMethod {
   /**
    * @param {string} projectId
    * @param {string} buildId
+   * @return {Promise<void>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async deleteBuild(projectId, buildId) {
+    throw new Error('Unimplemented');
+  }
+
+  /**
+   * @param {string} projectId
+   * @param {string} buildId
    * @param {LHCI.ServerCommand.GetRunsOptions} [options]
    * @return {Promise<LHCI.ServerCommand.Run[]>}
    */
@@ -170,7 +199,25 @@ class StorageMethod {
   }
 
   /**
-   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'>} project
+   * @param {string} projectId
+   * @return {Promise<string>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async _resetAdminToken(projectId) {
+    throw new Error('Unimplemented');
+  }
+
+  /**
+   * @param {string} projectId
+   * @return {Promise<string>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async _resetProjectToken(projectId) {
+    throw new Error('Unimplemented');
+  }
+
+  /**
+   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'|'adminToken'>} project
    * @return {Promise<LHCI.ServerCommand.Project>}
    */
   // eslint-disable-next-line no-unused-vars
@@ -179,7 +226,6 @@ class StorageMethod {
   }
 
   /**
-   * @protected
    * @param {StrictOmit<LHCI.ServerCommand.Statistic, 'id'>} unsavedStatistic
    * @param {*} [extras]
    * @return {Promise<LHCI.ServerCommand.Statistic>}
@@ -217,7 +263,7 @@ class StorageMethod {
    */
   static async getOrCreateStatistics(storageMethod, projectId, buildId) {
     const build = await storageMethod.findBuildById(projectId, buildId);
-    if (!build) throw new Error('Cannot create statistics for non-existent build');
+    if (!build) throw new E404('No build with that ID');
     // If the build hasn't been sealed yet then we can't compute statistics for it yet.
     if (build.lifecycle !== 'sealed') return [];
 
@@ -312,7 +358,7 @@ class StorageMethod {
 
   /**
    * @param {StorageMethod} storageMethod
-   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'>} unsavedProject
+   * @param {StrictOmit<LHCI.ServerCommand.Project, 'id'|'token'|'adminToken'>} unsavedProject
    */
   static async createProjectWithUniqueSlug(storageMethod, unsavedProject) {
     const maxLength = 40;
