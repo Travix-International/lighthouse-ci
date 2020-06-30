@@ -1,0 +1,62 @@
+labels:
+  team: aurora
+  language: nodejs
+
+version:
+  semver:
+    major: 0
+    minor: 0
+
+stages:
+  audit:
+    image: node:14.4.0-alpine
+    commands:
+    - npm audit
+
+  slack-notify:
+    image: extensions/slack-build-status:stable
+    workspace: travix
+    channels:
+    - '#builds-${ESTAFETTE_LABEL_TEAM}'
+    when:
+      status == 'failed'
+
+releases:
+  tooling-common:
+    stages:
+      deploy:
+        image: extensions/gke:stable
+        visibility: private
+        container:
+          port: 9001
+          env:
+            ENV1: value
+          cpu:
+            request: 100m
+            limit: 100m
+          memory:
+            request: 256Mi
+            limit: 256Mi
+
+        # sidecars:
+        # - type: cloudsqlproxy
+        #   env:
+        #     CORS_ALLOWED_ORIGINS: "*"
+        #     CORS_MAX_AGE: "86400"
+        #   cpu:
+        #     request: "10m"
+        #     limit: "50m"
+        #   memory:
+        #     request: "10Mi"
+        #     limit: "50Mi"
+        #   dbinstanceconnectionname: tooling-common:europe-west1:lighthouse_ci
+        #   sqlproxyport: 5043
+
+      slack-notify:
+        image: extensions/slack-build-status:stable
+        workspace: travix
+        channels:
+        - '#releases-${ESTAFETTE_LABEL_TEAM}'
+        when:
+          status == 'succeeded' ||
+          status == 'failed'
