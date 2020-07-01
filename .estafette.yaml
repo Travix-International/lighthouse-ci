@@ -62,11 +62,11 @@ releases:
             dbinstanceconnectionname: tooling-common-rsc-gvwzh:europe-west1:lighthouse
             sqlproxyport: 5043
       
-      hosts:
-        - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.travix.com
+    hosts:
+      - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.travix.com
 
-      internalhosts:
-        - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.internal.travix.io
+    internalhosts:
+      - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.internal.travix.io
 
       # slack-notify:
       #   image: extensions/slack-build-status:stable
