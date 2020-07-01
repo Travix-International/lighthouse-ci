@@ -33,6 +33,7 @@ releases:
     stages:
       deploy:
         image: extensions/gke:stable
+        repository: eu.gcr.io/travix-com
         visibility: private
         namespace: default
         useGoogleCloudCredentials: true
