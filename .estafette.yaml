@@ -12,14 +12,17 @@ version:
     minor: 0
 
 stages:
+  prepare:
+    image: extensions/docker:stable
+    commands:
+      - echo $CONFIG_FILE > /docs/recipes/docker-server/lighthouserc.json
+
   bake: 
     image: extensions/docker:stable
     action: build
     no-cache: true
     dockerfile: "/docs/recipes/docker-server/Dockerfile"
-    commands:
-      - echo $CONFIG_FILE > /docs/recipes/docker-server/lighthouserc.json
-
+    
   push:
     image: extensions/docker:stable
     action: push
