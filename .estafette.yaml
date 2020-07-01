@@ -14,7 +14,7 @@ stages:
       FROM node:12-buster-slim
       WORKDIR /usr/src/lhci
       COPY /docs/recipes/docker-server/package.json .
-      RUN echo $CONFIG_FILE > lighthouserc.json
+      RUN echo $CONFIG_FILE | base64 -d > lighthouserc.json
       RUN npm install
 
       EXPOSE 9001
