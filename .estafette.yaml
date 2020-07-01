@@ -45,3 +45,29 @@ releases:
           memory:
             request: 256Mi
             limit: 256Mi
+
+        sidecars:
+          - type: cloudsqlproxy
+            env:
+              CORS_ALLOWED_ORIGINS: "*"
+              CORS_MAX_AGE: "86400"
+            cpu:
+              request: "10m"
+              limit: "50m"
+            memory:
+              request: "10Mi"
+              limit: "50Mi"
+            dbinstanceconnectionname: tooling-common-rsc-gvwzh:europe-west1:lighthouse
+            sqlproxyport: 5043
+
+      internalhosts:
+        - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.internal.travix.io
+
+      slack-notify:
+        image: extensions/slack-build-status:stable
+        workspace: travix
+        channels:
+          - '#releases-${ESTAFETTE_LABEL_TEAM}'
+        when:
+          status == 'succeeded' ||
+          status == 'failed'
