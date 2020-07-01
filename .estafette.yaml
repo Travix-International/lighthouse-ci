@@ -13,8 +13,7 @@ stages:
     inline: |
       FROM node:12-buster-slim
       WORKDIR /usr/src/lhci
-      COPY package.json .
-      COPY lighthouserc.json . 
+      COPY /docs/recipes/docker-server/package.json .
       RUN echo $CONFIG_FILE > lighthouserc.json
       RUN npm install
 
