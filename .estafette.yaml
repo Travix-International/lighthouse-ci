@@ -20,6 +20,8 @@ stages:
 
       EXPOSE 9001
       CMD [ "npm", "start" ]
+    repositories:
+      - eu.gcr.io/travix-com
     
   push:
     image: extensions/docker:stable
