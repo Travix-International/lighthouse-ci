@@ -20,7 +20,6 @@ stages:
   bake: 
     image: extensions/docker:stable
     action: build
-    no-cache: true
     dockerfile: "/docs/recipes/docker-server/Dockerfile"
     
   push:
@@ -63,14 +62,11 @@ releases:
       internalhosts:
         - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.internal.travix.io
 
-
-        
-
       slack-notify:
         image: extensions/slack-build-status:stable
         workspace: travix
         channels:
-        - '#releases-${ESTAFETTE_LABEL_TEAM}'
+          - '#releases-${ESTAFETTE_LABEL_TEAM}'
         when:
           status == 'succeeded' ||
           status == 'failed'
