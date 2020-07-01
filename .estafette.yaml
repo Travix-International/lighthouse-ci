@@ -33,11 +33,11 @@ releases:
     stages:
       deploy:
         image: extensions/gke:stable
-        repository: eu.gcr.io/travix-com
         visibility: private
         namespace: default
         useGoogleCloudCredentials: true
         container:
+          repository: eu.gcr.io/travix-com
           port: 9001  
           env:
             ENV1: value
@@ -61,9 +61,12 @@ releases:
               limit: "50Mi"
             dbinstanceconnectionname: tooling-common-rsc-gvwzh:europe-west1:lighthouse
             sqlproxyport: 5043
+      
+      hosts:
+        - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.travix.com
 
-      # internalhosts:
-      #   - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.internal.travix.io
+      internalhosts:
+        - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.internal.travix.io
 
       # slack-notify:
       #   image: extensions/slack-build-status:stable
