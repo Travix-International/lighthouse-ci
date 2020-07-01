@@ -14,8 +14,8 @@ stages:
       FROM node:12-buster-slim
       WORKDIR /usr/src/lhci
       COPY package.json .
-      RUN echo $CONFIG_FILE > lighthouserc.json
       COPY lighthouserc.json . 
+      RUN echo $CONFIG_FILE > lighthouserc.json
       RUN npm install
 
       EXPOSE 9001
@@ -35,6 +35,7 @@ releases:
       deploy:
         image: extensions/gke:stable
         visibility: private
+        useGoogleCloudCredentials: true
         container:
           port: 9001  
           env:
