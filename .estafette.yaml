@@ -7,11 +7,6 @@ env:
   CONFIG_FILE: estafette.secret(EjrL7TMfhHmmjJGq.ZMeBNyy2K-Qb_AvNaxKnO8Dp_0Vz0_FAoLcPJ4RLEv-i0mo1NUI2jWpQMCgq7qGgjK8fC4wcbq6tPyCigmyL2nOOc6xVwzrx3_d6z_8zV8IdvhI-0OFCeq9MypXHxHUgPEiEAqe683lcNqI3uMIXtZ2kzqJbIypK9DtxAkAGdLj-9wwRgJLjQ9eCGh_rP9MXaBUd-8Cj1wuegUEn4k4rhiN8A2dXXuPKw5Uyi4Ul8s-De89d7d8Q2M3u5Rk1H7L0Px2HJJQzseG6n9Sk8pq4AeDblniOgOoxtJq9NHdQ02JpgVAAYkHR-VvCuIbJxXfsiItuC1uf1T6cuguwswAF4StOpHXwfO72UDb3mnNfMu2X2FHlGZbM622RSKs-lJmBv3tUFzvTMcltiQKDb2_Eimy_sSe5uSCM6vxxeox7UPHsw7j99SBuN9rDxOMYB_paHUIJ4tE-7kKsl5lhSn8b9Fnma5n34VyGTMzJhtgoy-iWNuta.ZtmaOBCXT-0Vwm2vUDuiGfGH90xO9clUm5sserByN7mB0k9qAkMYn1B2XCwK5cMFUxBS4UUilS-FKNXqaw==)
 
 stages:
-  prepare:
-    image: extensions/docker:stable
-    commands:
-      - echo $CONFIG_FILE > /docs/recipes/docker-server/lighthouserc.json
-
   bake: 
     image: extensions/docker:stable
     action: build
