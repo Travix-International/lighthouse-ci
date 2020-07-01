@@ -60,14 +60,14 @@ releases:
             dbinstanceconnectionname: tooling-common-rsc-gvwzh:europe-west1:lighthouse
             sqlproxyport: 5043
 
-      internalhosts:
-        - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.internal.travix.io
+      # internalhosts:
+      #   - ${ESTAFETTE_BUILD_VERSION_LABEL}-${ESTAFETTE_LABEL_APP}.internal.travix.io
 
-      slack-notify:
-        image: extensions/slack-build-status:stable
-        workspace: travix
-        channels:
-          - '#releases-${ESTAFETTE_LABEL_TEAM}'
-        when:
-          status == 'succeeded' ||
-          status == 'failed'
+      # slack-notify:
+      #   image: extensions/slack-build-status:stable
+      #   workspace: travix
+      #   channels:
+      #     - '#releases-${ESTAFETTE_LABEL_TEAM}'
+      #   when:
+      #     status == 'succeeded' ||
+      #     status == 'failed'
