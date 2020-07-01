@@ -15,7 +15,16 @@ stages:
   bake: 
     image: extensions/docker:stable
     action: build
-    dockerfile: "/docs/recipes/docker-server/Dockerfile"
+    inline: |
+      FROM node:12-buster-slim
+      WORKDIR /usr/src/lhci
+      COPY package.json .
+      RUN echo $CONFIG_FILE > lighthouserc.json
+      COPY lighthouserc.json . 
+      RUN npm install
+
+      EXPOSE 9001
+      CMD [ "npm", "start" ]
     
   push:
     image: extensions/docker:stable
