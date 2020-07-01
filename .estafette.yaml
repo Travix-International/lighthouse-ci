@@ -34,7 +34,7 @@ releases:
       deploy:
         image: extensions/gke:stable
         visibility: private
-        namespace: default
+        namespace: apps
         useGoogleCloudCredentials: true
         container:
           repository: eu.gcr.io/travix-com
