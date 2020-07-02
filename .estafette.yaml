@@ -34,17 +34,15 @@ releases:
     stages:
       deploy:
         image: extensions/gke:stable
-        visibility: esp
+        visibility: private
         disableServiceAccountKeyRotation: true
-        espOpenapiYamlPath: openapi.yaml
+        # espOpenapiYamlPath: openapi.yaml
         namespace: apps
         useGoogleCloudCredentials: true
         probeService: false
         container:
           repository: eu.gcr.io/travix-com
           port: 9001
-          readiness:
-            path: /version
           cpu:
             request: 100m
             limit: 100m
