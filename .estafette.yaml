@@ -40,7 +40,7 @@ releases:
           repository: eu.gcr.io/travix-com
           port: 9001
           readiness:
-            path: /readiness
+            path: /
           cpu:
             request: 100m
             limit: 100m
