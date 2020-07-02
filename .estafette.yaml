@@ -30,6 +30,7 @@ stages:
 
 releases:
   tooling-common:
+    clone: true
     stages:
       deploy:
         image: extensions/gke:stable
