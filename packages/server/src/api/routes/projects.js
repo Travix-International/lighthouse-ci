@@ -234,6 +234,14 @@ function createRouter(context) {
     })
   );
 
+  // GET /readiness
+  router.get(
+    '/readiness',
+    handleAsyncError(async (req, res) => {
+      res.sendStatus(200);
+    })
+  );
+
   return router;
 }
 

@@ -36,14 +36,11 @@ releases:
         visibility: private
         namespace: apps
         useGoogleCloudCredentials: true
-        injecthttpproxysidecar: false
         container:
           repository: eu.gcr.io/travix-com
           port: 9001
           readiness:
             path: /readiness
-          env:
-            ENV1: value
           cpu:
             request: 100m
             limit: 100m
