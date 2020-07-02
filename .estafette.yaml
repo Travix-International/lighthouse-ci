@@ -38,7 +38,9 @@ releases:
         useGoogleCloudCredentials: true
         container:
           repository: eu.gcr.io/travix-com
-          port: 9001  
+          port: 9001
+          readiness:
+            path: /readiness
           env:
             ENV1: value
           cpu:
