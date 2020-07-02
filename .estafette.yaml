@@ -40,7 +40,7 @@ releases:
           repository: eu.gcr.io/travix-com
           port: 9001
           readiness:
-            path: /liveness
+            path: /readiness
           env:
             ENV1: value
           cpu:
