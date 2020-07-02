@@ -36,6 +36,7 @@ releases:
         visibility: private
         namespace: apps
         useGoogleCloudCredentials: true
+        injecthttpproxysidecar: false
         container:
           repository: eu.gcr.io/travix-com
           port: 9001
