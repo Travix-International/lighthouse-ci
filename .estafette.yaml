@@ -33,7 +33,7 @@ releases:
     stages:
       deploy:
         image: extensions/gke:stable
-        visibility: private
+        visibility: public
         namespace: apps
         useGoogleCloudCredentials: true
         container:
