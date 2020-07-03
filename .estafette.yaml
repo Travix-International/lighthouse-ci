@@ -8,9 +8,13 @@ env:
   
 stages:
   audit:
-    image: node:14.4.0-alpine
-    commands:
-    - npm audit
+    image: extensions/npm-audit:stable
+    action: audit
+    level: critical
+    dev-level: none
+    workspace: travix
+    channels:
+    - '#${ESTAFETTE_LABEL_TEAM}-audits'
 
   restore:
     image: node:14.4.0-alpine
