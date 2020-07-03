@@ -7,18 +7,37 @@ env:
   CONFIG_FILE: estafette.secret(3UVXrhpIll-THmbZ.6x34Oi7oJDPpx3f546gD1DTQ35VQWivWd8DN0su5CMu562a-z9fn9-sdLaC1m6q6Q8S7QDNigf7klXFxL9ao0zoNCModkT1gTgniVHTV0ZDJG4f8UFreau1wToyUE1hISD9yhv7HswXvRoSv3HlsCYrcTS5JLAIfyz_f2QlEirO5riF8gF9aapMfnUIleGAx5SB-uirUQte5cLgWPbV9hFFNtPh466l-T5OQzg9YdwhhFDD3rtDsWe2kTidK7K_5RecGW3W1_w3Qd8tFPofouAWyZGWBng51sK5U8p8J7aw6p_rSD9v2tEh43BjSdnUIg9RoSK-BnMw7mlCxwm8X2f2H27Zqt8JQl-_uFcliwhEHHt35gxIW2tReTpU_0WJTdRqjCJrqTPA69fhs8LjMvz5x-E6WyoQIwuEGdTVALltDJyLLCefygWO5GgDoYMyYF8QLPe5VfhQltwiuzmaEGSBYIF9041t4KVaKMVCPp_o=.6QPjNRLJQDrn-RGb2IEG9gW-15xtfBPCTOzuj_-ALY2a60Ph-NbJ5dE7QaSVuD7f-bWJ82M5SFkwUbufNw==)
   
 stages:
+  audit:
+    image: node:14.4.0-alpine
+    commands:
+    - npm audit
+
+  restore:
+    image: node:14.4.0-alpine
+    commands:
+    - npm ci
+
+  test:
+    image: node:14.4.0-alpine
+    commands:
+    - npm run test
+
+  build:
+    image: node:14.4.0-alpine
+    commands:
+    - npm run build
+
   bake: 
     image: extensions/docker:stable
     action: build
     inline: |
       FROM node:12-buster-slim
       WORKDIR /usr/src/lhci
-      COPY /docs/recipes/docker-server/package.json .
+      COPY . .
       RUN echo $CONFIG_FILE | base64 -d > lighthouserc.json
-      RUN npm install
 
       EXPOSE 9001
-      CMD [ "npm", "start" ]
+      CMD [ "npm", "start:server" ]
     repositories:
       - eu.gcr.io/travix-com
     
