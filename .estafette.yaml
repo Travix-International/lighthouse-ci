@@ -49,6 +49,12 @@ releases:
           memory:
             request: 256Mi
             limit: 256Mi
+        # volumemounts:
+        # - name: "blabla"
+        #   mountpath: /
+        #   volume:
+        #     hostPath:
+        #       path: /var/log
 
         sidecars:
           - type: cloudsqlproxy
@@ -62,7 +68,7 @@ releases:
               request: "10Mi"
               limit: "50Mi"
             dbinstanceconnectionname: tooling-common-rsc-gvwzh:europe-west1:lighthouse
-            sqlproxyport: 5043
+            sqlproxyport: 5432
       
         hosts:
           - lhci-server.internal.travix.io
