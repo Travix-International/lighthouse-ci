@@ -1,0 +1,74 @@
+labels:
+  app: lhci-server
+  team: aurora
+  language: nodejs
+
+env:
+  CONFIG_FILE: estafette.secret(GAP4TP5N72Pwguwc.fDnhd6KTaEFT5_ph1vgTq9iblQwQaH-8I2BWmqc8eYFZM4a2CL6k2x0GtZehHlpRQs3hdbK9Bkm2DDkk6sI3x7H9slqR46UrZhFlUY7q8rfnr-DhuL3Bvn7Hjs8MwXY3w-paDst1eTveg-3Dmz8hMbV4sBMEuQZUF_t60U-INJoXQYtFzfhJlrCIW3q2b_ZbUbwXjf51bP8iKWFfKABJrpftlcqAVC-TOxHloaGJgdYPJxD-laaOgqZvZZEpmstsnU8qDbrn_pDOIQT_OlG4US7H2lrKtYWU0jgarWRUQWAqBEaCSlsFwGAHK3GDyUZ2vPmPg3W8RaPVmwVtX1zAUD94QFjdVDlhfZR_P27xwhXj61rZfZnAfsIX98ywqKzm18rhxv3BTsMgTrhY7qZDil_wbjpmnnEKqvx0tOEdr4OmsLt8wBl8my0Bmu2Cl-vQ.fif6eJ6yDEhd2ZwD7dEWien1nQUtTkeoGEx1x5MFXMd6M6PpP7-KyScg2ZOBfW5P-ndVa32y7B6fNjQk4A==)
+
+stages:
+  bake: 
+    image: extensions/docker:stable
+    action: build
+    inline: |
+      FROM node:12-buster-slim
+      WORKDIR /usr/src/lhci
+      COPY /docs/recipes/docker-server/package.json .
+      RUN echo $CONFIG_FILE | base64 -d > lighthouserc.json
+      RUN npm install
+
+      EXPOSE 9001
+      CMD [ "npm", "start" ]
+    repositories:
+      - eu.gcr.io/travix-com
+
+  push:
+    image: extensions/docker:stable
+    action: push
+    repositories:
+      - eu.gcr.io/travix-com
+
+releases:
+  tooling-common:
+    clone: true
+    stages:
+      deploy:
+        image: extensions/gke:stable
+        visibility: private
+        disableServiceAccountKeyRotation: true
+        namespace: apps
+        useGoogleCloudCredentials: true
+        probeService: false
+        container:
+          repository: eu.gcr.io/travix-com
+          port: 9001
+          cpu:
+            request: 500m
+            limit: 500m
+          memory:
+            request: 1Gi
+            limit: 1Gi
+          liveness:
+            path: /version
+          readiness:
+            path: /version
+
+        sidecars:
+          - type: cloudsqlproxy
+            env:
+              CORS_ALLOWED_ORIGINS: "*"
+              CORS_MAX_AGE: "86400"
+            cpu:
+              request: "10m"
+              limit: "50m"
+            memory:
+              request: "10Mi"
+              limit: "50Mi"
+            dbinstanceconnectionname: tooling-common-rsc-gvwzh:europe-west1:lighthouse
+            sqlproxyport: 5432
+
+        hosts:
+          - lhci-server.travix.com
+
+        internalhosts:
+          - lhci-server.internal.travix.io
