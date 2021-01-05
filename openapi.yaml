@@ -1,0 +1,19 @@
+---
+swagger: '2.0'
+info:
+  version: v1
+  title: lhci-server.internal.travix.io
+host: lhci-server.internal.travix.io
+schemes:
+  - "https"
+basePath: "/"
+x-google-authorization:
+  require_access_control: true
+paths: 
+  "/": 
+    post: 
+      operationId: ProductsCancellation
+      responses: 
+        200: 
+          description: Success
+      security: 

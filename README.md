@@ -4,6 +4,16 @@
 
 Lighthouse CI is a suite of tools that make continuously running, saving, retrieving, and asserting against [Lighthouse](https://github.com/GoogleChrome/lighthouse) results as easy as possible.
 
+### Syncing the Fork with Upstream
+
+```console
+git clone git@github.com:Travix-International/lighthouse-ci.git && cd lighthouse-ci
+git remote add upstream git@github.com:GoogleChrome/lighthouse-ci.git
+git fetch upstream master:upstream
+git rebase upstream master
+git push --force origin master
+```
+
 ### Quick Start
 
 To get started with GitHub actions for common project configurations, add the following file to your GitHub repository. Follow [the Getting Started guide](./docs/getting-started.md) for a more complete walkthrough and instructions on other providers and setups.
