@@ -11,7 +11,7 @@ stages:
     image: extensions/docker:stable
     action: build
     inline: |
-      FROM node:12-buster-slim
+      FROM node:16-buster-slim
       WORKDIR /usr/src/lhci
       COPY /docs/recipes/docker-server/package.json .
       RUN echo $CONFIG_FILE | base64 -d > lighthouserc.json
