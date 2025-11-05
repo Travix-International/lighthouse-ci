@@ -21,7 +21,6 @@ describe('Lighthouse CI upload CLI', () => {
 
   const writeLhr = () => {
     const fakeLhr = {finalUrl: 'foo.com', categories: {}, audits: {}};
-    fakeLhr.categories.pwa = {score: 0};
     fakeLhr.categories.performance = {score: 0};
     fakeLhr.audits['performance-budget'] = {score: 0};
     for (const key of Object.keys(fullPreset.assertions)) {
@@ -159,7 +158,7 @@ describe('Lighthouse CI upload CLI', () => {
 
   it('should support target=filesystem', async () => {
     const lhr = JSON.parse(fs.readFileSync(fakeLhrPath, 'utf8'));
-    lhr.finalUrl = `https://www.example.com/page`;
+    lhr.requestedUrl = `https://www.example.com/page`;
     lhr.fetchTime = '2020-05-22T22:12:01.000Z';
     lhr.audits['first-contentful-paint'].numericValue = 900;
     fs.writeFileSync(fakeLhrPath.replace(/lhr-\d+/, 'lhr-1'), JSON.stringify(lhr));
@@ -190,12 +189,12 @@ describe('Lighthouse CI upload CLI', () => {
     const files = fs.readdirSync(outputDir).sort();
     expect(files).toEqual([
       'manifest.json',
-      'www_example_com-_page-2020_05_22_22_12_01.report.html',
-      'www_example_com-_page-2020_05_22_22_12_01.report.json',
-      'www_example_com-_page-2020_05_22_22_12_02.report.html',
-      'www_example_com-_page-2020_05_22_22_12_02.report.json',
-      'www_example_com-_page-2020_05_22_22_12_03.report.html',
-      'www_example_com-_page-2020_05_22_22_12_03.report.json',
+      'www_example_com-page-2020_05_22_22_12_01.report.html',
+      'www_example_com-page-2020_05_22_22_12_01.report.json',
+      'www_example_com-page-2020_05_22_22_12_02.report.html',
+      'www_example_com-page-2020_05_22_22_12_02.report.json',
+      'www_example_com-page-2020_05_22_22_12_03.report.html',
+      'www_example_com-page-2020_05_22_22_12_03.report.json',
     ]);
 
     const manifest = JSON.parse(fs.readFileSync(path.join(outputDir, 'manifest.json'), 'utf8'));
@@ -203,23 +202,23 @@ describe('Lighthouse CI upload CLI', () => {
       {
         url: 'https://www.example.com/page',
         isRepresentativeRun: false,
-        htmlPath: path.join(outputDir, 'www_example_com-_page-2020_05_22_22_12_01.report.html'),
-        jsonPath: path.join(outputDir, 'www_example_com-_page-2020_05_22_22_12_01.report.json'),
-        summary: {performance: 0, pwa: 0},
+        htmlPath: path.join(outputDir, 'www_example_com-page-2020_05_22_22_12_01.report.html'),
+        jsonPath: path.join(outputDir, 'www_example_com-page-2020_05_22_22_12_01.report.json'),
+        summary: {performance: 0},
       },
       {
         url: 'https://www.example.com/page',
         isRepresentativeRun: false,
-        htmlPath: path.join(outputDir, 'www_example_com-_page-2020_05_22_22_12_02.report.html'),
-        jsonPath: path.join(outputDir, 'www_example_com-_page-2020_05_22_22_12_02.report.json'),
-        summary: {performance: 0, pwa: 0},
+        htmlPath: path.join(outputDir, 'www_example_com-page-2020_05_22_22_12_02.report.html'),
+        jsonPath: path.join(outputDir, 'www_example_com-page-2020_05_22_22_12_02.report.json'),
+        summary: {performance: 0},
       },
       {
         url: 'https://www.example.com/page',
         isRepresentativeRun: true,
-        htmlPath: path.join(outputDir, 'www_example_com-_page-2020_05_22_22_12_03.report.html'),
-        jsonPath: path.join(outputDir, 'www_example_com-_page-2020_05_22_22_12_03.report.json'),
-        summary: {performance: 0.5, pwa: 0},
+        htmlPath: path.join(outputDir, 'www_example_com-page-2020_05_22_22_12_03.report.html'),
+        jsonPath: path.join(outputDir, 'www_example_com-page-2020_05_22_22_12_03.report.json'),
+        summary: {performance: 0.5},
       },
     ]);
   }, 15000);

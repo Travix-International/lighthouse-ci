@@ -4,7 +4,7 @@
 
 ## Overview
 
-The LHCI server can be run in any node environment with persistent disk storage or network access to a postgres database. Heroku offers a [free tier of hosting](https://www.heroku.com/pricing) that provides exactly this!
+The LHCI server can be run in any node environment with persistent disk storage or network access to a postgres database. <del>Heroku offers a [free tier of hosting](https://www.heroku.com/pricing) that provides exactly this!</del>
 
 ## Setting Up Your Repo
 
@@ -25,8 +25,8 @@ This assumes you've already signed up, created a heroku account, and installed t
 ```bash
 # Create a new project on heroku
 heroku create
-# Add a free database to your project
-heroku addons:create heroku-postgresql:hobby-dev
+# Add a database to your project
+heroku addons:create heroku-postgresql:essential-0
 # Deploy your code to heroku
 git push heroku main
 # Ensure heroku is running your app and open the URL

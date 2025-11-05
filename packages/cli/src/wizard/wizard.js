@@ -12,6 +12,7 @@ const ApiClient = require('@lhci/utils/src/api-client.js');
 const _ = require('@lhci/utils/src/lodash.js');
 const log = require('lighthouse-logger');
 const {assertOptionalDependency} = require('../utils.js');
+const fetch = require('../fetch.js');
 
 /**
  * @param {import('yargs').Argv} yargs
@@ -53,11 +54,12 @@ async function runNewProjectWizard(options) {
       type: 'input',
       name: 'projectBaseBranch',
       message: "What branch is considered the repo's trunk or main branch?",
-      default: 'master',
+      default: 'main',
     },
   ]);
 
   const api = new ApiClient({
+    fetch,
     ...options,
     rootURL: responses.serverBaseUrl || options.serverBaseUrl,
   });

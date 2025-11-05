@@ -10,6 +10,8 @@ Lighthouse CI will automatically look for a configuration file in the current wo
 
 1. `.lighthouserc.js`
 1. `lighthouserc.js`
+1. `.lighthouserc.cjs`
+1. `lighthouserc.cjs`
 1. `.lighthouserc.json`
 1. `lighthouserc.json`
 1. `.lighthouserc.yml`
@@ -230,6 +232,9 @@ Options:
   --maxAutodiscoverUrls      The maximum number of pages to collect when using the staticDistDir
                              option with no specified URL. Disable this limit by setting to 0.
                                                                                [number] [default: 5]
+  --staticDirFileDiscoveryDepth The maximum depth of nested folders Lighthouse will look into to discover 
+                                URLs on a static file folder.
+                                                                               [number] [default: 2]
 ```
 
 #### `method`
@@ -326,7 +331,7 @@ For more information on how to use puppeteer, read up on [their API docs](https:
 
 #### `puppeteerLaunchOptions`
 
-An object of options to pass to puppeteer's [`launch` method](https://github.com/puppeteer/puppeteer/blob/v2.0.0/docs/api.md#puppeteerlaunchoptions). Only used when `puppeterScript` is set.
+An object of options to pass to puppeteer's [`launch` method](https://github.com/puppeteer/puppeteer/blob/v2.0.0/docs/api.md#puppeteerlaunchoptions). Only used when `puppeteerScript` is set.
 
 #### `psiApiKey`
 
@@ -401,7 +406,7 @@ Note that the following options cannot be used because LHCI uses them internally
 
 #### `numberOfRuns`
 
-The number of times to collect Lighthouse results on each `url`. This option helps mitigate fluctations due to natural page [variability](https://github.com/GoogleChrome/lighthouse/blob/v6.0.0-beta.0/docs/variability.md).
+The number of times to collect Lighthouse results on each `url`. This option helps mitigate fluctuations due to natural page [variability](https://github.com/GoogleChrome/lighthouse/blob/v6.0.0-beta.0/docs/variability.md).
 
 #### Examples
 
@@ -420,11 +425,30 @@ lhci collect --url=https://example-1.com --url=https://example-2.com
 lhci collect --start-server-command="yarn serve" --url=http://localhost:8080/ --puppeteer-script=./path/to/login-with-puppeteer.js
 ```
 
+### `staticDirFileDiscoveryDepth`
+
+The maximum depth level of nested folders that Lighthouse will look into to discover URLs. If not set, this will default to 2.
+
+### Example
+```text
+
+public/
+├── index.html               #level 0                      
+├── contact/
+│   └── index.html           #level 1
+├── projects/
+│   ├──index.html            #level 1
+│   └── crisis/
+│       ├──index.html        #level 2
+│       └── earthquake/
+│           └── index.html   #level 3
+```
+
 ---
 
 ### `upload`
 
-Saves the runs in the `.lighthouseci/` folder to desired target and sets a GitHub status check when the GitHub token is available.
+Saves the runs in the `.lighthouseci/` folder to desired target and sets a GitHub status check when the GitHub token is available and target is not `filesystem`.
 
 ```bash
 Options:
@@ -484,6 +508,7 @@ The target location to which Lighthouse CI should upload the reports.
 - You want to process the raw Lighthouse results yourself locally.
 - You want access to the report files on the local filesystem.
 - You don't want to upload the results to a custom location that isn't supported by Lighthouse CI.
+- You don't need detailed status checks in GitHub
 
 #### `token`
 
@@ -665,7 +690,7 @@ Options:
 
 #### `assertions`
 
-The result of any audit in Lighthouse can be asserted. Assertions are keyed by the Lighthouse audit ID and follow an eslint-style format of `level | [level, options]`. For a reference of the audit IDs in each category, you can take a look at the [default Lighthouse config](https://github.com/GoogleChrome/lighthouse/blob/v5.5.0/lighthouse-core/config/default-config.js#L375-L407). When no options are set, the default options of `{"aggregationMethod": "optimistic", "minScore": 1}` are used.
+The result of any audit in Lighthouse can be asserted. Assertions are keyed by the Lighthouse audit ID and follow an eslint-style format of `level | [level, options]`. For a reference of the audit IDs in each category, you can take a look at the [default Lighthouse config](https://github.com/GoogleChrome/lighthouse/blob/main/core/config/default-config.js). When no options are set, the default options of `{"aggregationMethod": "optimistic", "minScore": 1}` are used.
 
 ```jsonc
 {
@@ -1006,7 +1031,7 @@ _Optional_ The maximum number of requests to send to the PageSpeed Insights API 
 
 ##### `psiCollectCron.sites[i].categories`
 
-_Optional_ An array containing the categories to test for each url in this site. Defaults to `['performance', 'accessibility', 'best-practices', 'pwa', 'seo']` (all categories).
+_Optional_ An array containing the categories to test for each url in this site. Defaults to `['performance', 'accessibility', 'best-practices', 'seo']` (all categories).
 
 ##### `psiCollectCron.sites[i].strategy`
 

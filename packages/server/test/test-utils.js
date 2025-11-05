@@ -64,7 +64,7 @@ function createActualTestDataset() {
   /** @param {number} delta */
   const runAt = delta =>
     new Date(
-      new Date('2020-05-10T11:00:00.000Z').getTime() + delta * 24 * 60 * 60 * 1000
+      new Date('2025-01-01T11:00:00.000Z').getTime() + delta * 24 * 60 * 60 * 1000
     ).toISOString();
   const url = 'http://lhci.example.com/';
   const baseProject = {externalUrl: '', baseBranch: '', token: '', adminToken: '', slug: ''};
@@ -96,6 +96,14 @@ function createActualTestDataset() {
       {...baseBuild, id: '11', hash: '1246', commitMessage: 'build 12', runAt: runAt(12)},
       {...baseBuild, id: '12', hash: '1247', commitMessage: 'build 13', runAt: runAt(13)},
       {...baseBuild, id: '13', hash: '1248', commitMessage: 'build 14', runAt: runAt(14)},
+      {...baseBuild, id: '14', hash: '1249', commitMessage: 'build 15', runAt: runAt(15)},
+      {...baseBuild, id: '15', hash: '1250', commitMessage: 'build 16', runAt: runAt(16)},
+      {...baseBuild, id: '16', hash: '1251', commitMessage: 'build 17', runAt: runAt(17)},
+      {...baseBuild, id: '17', hash: '1252', commitMessage: 'build 18', runAt: runAt(18)},
+      {...baseBuild, id: '18', hash: '1253', commitMessage: 'build 19', runAt: runAt(19)},
+      {...baseBuild, id: '19', hash: '1254', commitMessage: 'build 20', runAt: runAt(20)},
+      {...baseBuild, id: '20', hash: '1255', commitMessage: 'build 21', runAt: runAt(21)},
+      {...baseBuild, id: '21', hash: '1256', commitMessage: 'build 22', runAt: runAt(22)},
     ],
     runs: [
       {...baseRun, id: '0', buildId: '0', url, lhr: lhr('lh-5-6-0-verge-a.json')},
@@ -112,6 +120,14 @@ function createActualTestDataset() {
       {...baseRun, id: '11', buildId: '11', url, lhr: lhr('lh-8-0-0-coursehero-b.json')},
       {...baseRun, id: '12', buildId: '12', url, lhr: lhr('lh-9-3-0-coursehero-a.json')},
       {...baseRun, id: '13', buildId: '13', url, lhr: lhr('lh-9-3-0-coursehero-b.json')},
+      {...baseRun, id: '14', buildId: '14', url, lhr: lhr('lh-10-1-0-coursehero-a.json')},
+      {...baseRun, id: '15', buildId: '15', url, lhr: lhr('lh-10-1-0-coursehero-b.json')},
+      {...baseRun, id: '16', buildId: '16', url, lhr: lhr('lh-11-4-0-coursehero-a.json')},
+      {...baseRun, id: '17', buildId: '17', url, lhr: lhr('lh-11-4-0-coursehero-b.json')},
+      {...baseRun, id: '18', buildId: '18', url, lhr: lhr('lh-12-0-0-coursehero-a.json')},
+      {...baseRun, id: '19', buildId: '19', url, lhr: lhr('lh-12-0-0-coursehero-b.json')},
+      {...baseRun, id: '20', buildId: '20', url, lhr: lhr('lh-12-6-1-coursehero-a.json')},
+      {...baseRun, id: '21', buildId: '21', url, lhr: lhr('lh-12-6-1-coursehero-b.json')},
     ],
   };
 }
@@ -275,6 +291,9 @@ module.exports = {
       // FIXME: we're more forgiving in CI where font rendering creates small changes.,
       // failureThreshold: process.env.CI ? 0.005 : 0.001,
       failureThresholdType: 'percent',
+      // On -u dont update files that are already fine. This should match the default but...
+      // we've seen behavior which seemingly conflicts.
+      updatePassedSnapshot: false,
     });
 
     expect.extend({toMatchImageSnapshot});
@@ -282,7 +301,7 @@ module.exports = {
   /** @param {LHCI.E2EState} state */
   launchBrowser: async state => {
     state.browser = await puppeteer.launch({
-      headless: !state.debug,
+      headless: state.debug ? false : 'new',
       slowMo: state.debug ? 250 : undefined,
       devtools: state.debug,
       env: {...process.env, TZ: 'America/Chicago'},
