@@ -20,13 +20,13 @@ stages:
       EXPOSE 9001
       CMD [ "npm", "start" ]
     repositories:
-      - eu.gcr.io/travix-com
+      - europe-docker.pkg.dev/travix-com/eu-docker-travix
 
   push:
     image: extensions/docker:stable
     action: push
     repositories:
-      - eu.gcr.io/travix-com
+      - europe-docker.pkg.dev/travix-com/eu-docker-travix
 
 releases:
   tooling-common:
@@ -40,7 +40,7 @@ releases:
         useGoogleCloudCredentials: true
         probeService: false
         container:
-          repository: eu.gcr.io/travix-com
+          repository: europe-docker.pkg.dev/travix-com/eu-docker-travix
           port: 9001
           cpu:
             request: 500m
